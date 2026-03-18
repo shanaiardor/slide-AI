@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Slide Ask AI",
+  "version": "0.2.0",
+  "description": "Select text on any page and ask AI directly from a Chrome extension.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "action": {
+    "default_title": "Slide Ask AI",
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

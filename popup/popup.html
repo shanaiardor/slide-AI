@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Slide Ask AI</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <p class="eyebrow">Chrome Extension</p>
+      <h1>Slide Ask AI</h1>
+      <p class="desc">在网页上选中文字，点击浮出的“问 AI”按钮，就能直接得到解释、总结或翻译。</p>
+
+      <section class="panel">
+        <p class="label">当前页面</p>
+        <p id="tab-title" class="value">读取中...</p>
+        <p id="tab-url" class="muted">请稍候</p>
+      </section>
+
+      <section class="panel">
+        <p class="label">使用方式</p>
+        <p class="value compact">1. 保存下面的 AI 配置</p>
+        <p class="value compact">2. 刷新目标网页</p>
+        <p class="value compact">3. 选中文字后点击“问 AI”</p>
+        <p id="page-status" class="muted">正在检查当前页面是否支持注入...</p>
+      </section>
+
+      <form id="settings-form" class="panel form-panel">
+        <p class="label">AI 配置</p>
+
+        <label class="field">
+          <span>API Key</span>
+          <input id="api-key" type="password" placeholder="sk-..." autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>Base URL</span>
+          <input id="api-base-url" type="url" placeholder="https://api.deepseek.com/v1" />
+        </label>
+
+        <label class="field">
+          <span>Model</span>
+          <input id="model" type="text" placeholder="deepseek-chat" />
+        </label>
+
+        <label class="field">
+          <span>Reasoning Effort</span>
+          <select id="reasoning-effort">
+            <option value="minimal">minimal</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+          <span id="reasoning-effort-hint" class="field-hint">
+            仅在 `doubao-seed` 模型下生效；`minimal` 表示不思考。
+          </span>
+        </label>
+
+        <label class="field">
+          <span>接口模式</span>
+          <select id="api-mode">
+            <option value="chat_completions">Chat Completions API（推荐）</option>
+            <option value="auto">自动兼容</option>
+            <option value="responses">Responses API</option>
+          </select>
+        </label>
+
+        <label class="checkbox-field">
+          <input id="debug-enabled" type="checkbox" />
+          <span>开启 Debug 模式，记录最近请求日志</span>
+        </label>
+
+        <label class="field">
+          <span>系统提示词</span>
+          <textarea id="system-prompt" rows="4" placeholder="告诉 AI 应该如何回答"></textarea>
+        </label>
+
+        <button id="save-button" type="submit">保存配置</button>
+        <p id="save-status" class="muted">配置会保存在浏览器本地存储中。</p>
+      </form>
+
+      <section class="panel form-panel">
+        <p class="label">性能指标</p>
+        <p id="metrics-status" class="muted">这里会显示最近一次 AI 请求的性能指标。</p>
+        <div id="metrics-grid" class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">首 token 延迟</span>
+            <strong id="metric-first-token" class="metric-value">-</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Token 速度</span>
+            <strong id="metric-token-speed" class="metric-value">-</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">总耗时</span>
+            <strong id="metric-total-latency" class="metric-value">-</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Completion Tokens</span>
+            <strong id="metric-completion-tokens" class="metric-value">-</strong>
+          </div>
+        </div>
+        <p id="metrics-meta" class="muted">暂无请求记录</p>
+      </section>
+
+      <section class="panel form-panel">
+        <p class="label">调试日志</p>
+        <p id="debug-status" class="muted">开启 Debug 模式后，这里会显示最近的请求过程。</p>
+        <div class="debug-actions">
+          <button id="refresh-logs-button" class="secondary-button" type="button">刷新日志</button>
+          <button id="clear-logs-button" class="secondary-button" type="button">清空日志</button>
+        </div>
+        <pre id="debug-log-output" class="debug-log-output">暂无日志</pre>
+      </section>
+    </main>
+
+    <script src="./popup.js"></script>
+  </body>
+</html>
