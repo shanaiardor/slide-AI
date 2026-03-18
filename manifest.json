@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Slide Ask AI",
+  "name": "滑词问 AI",
   "version": "0.2.0",
-  "description": "Select text on any page and ask AI directly from a Chrome extension.",
+  "description": "在任意网页中滑词后直接向 AI 提问，并支持继续追问。",
   "permissions": ["activeTab", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background.js"
   },
   "action": {
-    "default_title": "Slide Ask AI",
+    "default_title": "滑词问 AI",
     "default_popup": "popup/popup.html"
   },
   "content_scripts": [

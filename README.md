@@ -10,6 +10,7 @@
 - 滑词后浮出“问 AI”按钮
 - 点击“问 AI”后立即调用 AI 并展示回答
 - AI 回答中的 Markdown 会在页面面板内渲染显示
+- 页面浮层支持继续追问，形成一个简洁的对话窗口
 - 在插件弹窗中配置 API Key、Base URL、Model 和系统提示词
 - 识别 `doubao-seed` 模型时可配置 `reasoning_effort`
 - 插件弹窗显示最近一次请求的性能指标，如首 token 延迟和 token 速度

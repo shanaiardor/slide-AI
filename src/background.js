@@ -174,13 +174,71 @@ function trimSelection(text) {
   return normalized.length > 12000 ? normalized.slice(0, 12000) : normalized;
 }
 
-function buildPromptText(selectedText, question) {
+function normalizeConversationHistory(conversationHistory) {
+  if (!Array.isArray(conversationHistory)) {
+    return [];
+  }
+
+  return conversationHistory
+    .filter((message) => ["user", "assistant"].includes(message?.role))
+    .map((message) => ({
+      role: message.role,
+      content: String(message.content || "").trim()
+    }))
+    .filter((message) => message.content);
+}
+
+function getEffectiveConversationHistory(message) {
+  const history = normalizeConversationHistory(message.conversationHistory);
+
+  if (history.length > 0) {
+    return history;
+  }
+
+  const question = (message.question || "").trim() || "请解释这段内容，并告诉我重点。";
+  return [
+    {
+      role: "user",
+      content: question
+    }
+  ];
+}
+
+function buildPromptText(selectedText, conversationHistory) {
+  const transcript = conversationHistory
+    .map((message) => `${message.role === "assistant" ? "Assistant" : "User"}: ${message.content}`)
+    .join("\n\n");
+
   return [
     "下面是我在网页中选中的内容：",
     selectedText,
     "",
-    `我的问题：${question}`
+    "请你始终围绕这段内容和下面的对话上下文回答。",
+    "",
+    transcript
   ].join("\n");
+}
+
+function buildChatMessages(systemPrompt, selectedText, conversationHistory) {
+  return [
+    {
+      role: "system",
+      content: systemPrompt
+    },
+    {
+      role: "system",
+      content:
+        "用户已经在网页中选中了一段内容。请始终围绕这段内容和后续追问来回答，不要脱离上下文。"
+    },
+    {
+      role: "user",
+      content: `选中文本：\n${selectedText}`
+    },
+    ...conversationHistory.map((message) => ({
+      role: message.role,
+      content: message.content
+    }))
+  ];
 }
 
 function createHttpError(response, data, endpoint) {
@@ -341,16 +399,7 @@ async function requestChatCompletions(endpoint, settings, apiKey, promptText) {
   const startedAtPerf = performance.now();
   const payload = {
     model,
-    messages: [
-      {
-        role: "system",
-        content: (settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt).trim()
-      },
-      {
-        role: "user",
-        content: promptText
-      }
-    ]
+    messages: promptText
   };
 
   if (
@@ -419,7 +468,7 @@ async function askAI(message) {
   const settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
   const apiKey = (settings.apiKey || "").trim();
   const selectedText = trimSelection(message.selectedText);
-  const question = (message.question || "").trim() || "请解释这段内容，并告诉我重点。";
+  const conversationHistory = getEffectiveConversationHistory(message);
 
   if (!selectedText) {
     await appendDebugLog("warn", "validation_failed", {
@@ -435,7 +484,9 @@ async function askAI(message) {
     throw new Error("请先在插件弹窗中配置 API Key。");
   }
 
-  const promptText = buildPromptText(selectedText, question);
+  const systemPrompt = (settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt).trim();
+  const promptText = buildPromptText(selectedText, conversationHistory);
+  const chatMessages = buildChatMessages(systemPrompt, selectedText, conversationHistory);
   const requestMode = settings.apiMode || DEFAULT_SETTINGS.apiMode;
   const modes =
     requestMode === "responses"
@@ -455,7 +506,8 @@ async function askAI(message) {
     reasoningEffort: isDoubaoSeedModel(settings.model) ? settings.reasoningEffort : null,
     selectedLength: selectedText.length,
     selectedPreview: previewText(selectedText),
-    question
+    conversationLength: conversationHistory.length,
+    lastTurnPreview: previewText(conversationHistory[conversationHistory.length - 1]?.content || "")
   });
 
   for (const mode of modes) {
@@ -470,7 +522,7 @@ async function askAI(message) {
       result =
         mode === "responses"
           ? await requestResponses(endpoint, settings, apiKey, promptText)
-          : await requestChatCompletions(endpoint, settings, apiKey, promptText);
+          : await requestChatCompletions(endpoint, settings, apiKey, chatMessages);
 
       await appendDebugLog("info", "request_succeeded", {
         endpoint,

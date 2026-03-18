@@ -1,12 +1,13 @@
 const HOST_ID = "slide-ask-ai-root";
 const MAX_PREVIEW_LENGTH = 240;
+const DEFAULT_OPENING_QUESTION = "请解释这段内容，并告诉我重点。";
 
 const state = {
   selectedText: "",
   selectedRect: null,
   panelOpen: false,
   loading: false,
-  answer: "",
+  messages: [],
   statusMessage: ""
 };
 
@@ -183,6 +184,20 @@ function renderMarkdown(markdown) {
   return blocks.join("");
 }
 
+function renderChatMessage(message) {
+  const role = message.role === "user" ? "user" : "assistant";
+  const body =
+    role === "assistant"
+      ? renderMarkdown(message.content)
+      : `<p>${renderInlineMarkdown(message.content)}</p>`;
+
+  return `
+    <article class="slide-ask-ai-message slide-ask-ai-message-${role}">
+      <div class="slide-ask-ai-message-body">${body}</div>
+    </article>
+  `;
+}
+
 function getInputSelection() {
   const activeElement = document.activeElement;
 
@@ -315,99 +330,198 @@ function ensureUI() {
         letter-spacing: 0.01em;
       }
 
-      .slide-ask-ai-answer {
+      .slide-ask-ai-thread {
         margin: 0;
-        max-height: 300px;
+        max-height: 360px;
         overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .slide-ask-ai-message {
+        display: flex;
+      }
+
+      .slide-ask-ai-message-assistant {
+        justify-content: flex-start;
+      }
+
+      .slide-ask-ai-message-user {
+        justify-content: flex-end;
+      }
+
+      .slide-ask-ai-message-body {
+        max-width: 88%;
         padding: 14px;
-        border-radius: 16px;
-        background: #0f172a;
-        color: #e2e8f0;
+        border-radius: 18px;
         line-height: 1.65;
         font-size: 14px;
       }
 
-      .slide-ask-ai-answer > :first-child {
+      .slide-ask-ai-message-assistant .slide-ask-ai-message-body {
+        background: #0f172a;
+        color: #e2e8f0;
+        border-top-left-radius: 8px;
+      }
+
+      .slide-ask-ai-message-user .slide-ask-ai-message-body {
+        background: rgba(226, 232, 240, 0.9);
+        color: #0f172a;
+        border-top-right-radius: 8px;
+      }
+
+      .slide-ask-ai-message-body > :first-child {
         margin-top: 0;
       }
 
-      .slide-ask-ai-answer > :last-child {
+      .slide-ask-ai-message-body > :last-child {
         margin-bottom: 0;
       }
 
-      .slide-ask-ai-answer p,
-      .slide-ask-ai-answer ul,
-      .slide-ask-ai-answer ol,
-      .slide-ask-ai-answer blockquote,
-      .slide-ask-ai-answer pre,
-      .slide-ask-ai-answer h1,
-      .slide-ask-ai-answer h2,
-      .slide-ask-ai-answer h3,
-      .slide-ask-ai-answer h4,
-      .slide-ask-ai-answer h5,
-      .slide-ask-ai-answer h6 {
+      .slide-ask-ai-message-body p,
+      .slide-ask-ai-message-body ul,
+      .slide-ask-ai-message-body ol,
+      .slide-ask-ai-message-body blockquote,
+      .slide-ask-ai-message-body pre,
+      .slide-ask-ai-message-body h1,
+      .slide-ask-ai-message-body h2,
+      .slide-ask-ai-message-body h3,
+      .slide-ask-ai-message-body h4,
+      .slide-ask-ai-message-body h5,
+      .slide-ask-ai-message-body h6 {
         margin: 0 0 12px;
       }
 
-      .slide-ask-ai-answer h1,
-      .slide-ask-ai-answer h2,
-      .slide-ask-ai-answer h3,
-      .slide-ask-ai-answer h4,
-      .slide-ask-ai-answer h5,
-      .slide-ask-ai-answer h6 {
+      .slide-ask-ai-message-body h1,
+      .slide-ask-ai-message-body h2,
+      .slide-ask-ai-message-body h3,
+      .slide-ask-ai-message-body h4,
+      .slide-ask-ai-message-body h5,
+      .slide-ask-ai-message-body h6 {
         color: #f8fafc;
         line-height: 1.35;
       }
 
-      .slide-ask-ai-answer ul,
-      .slide-ask-ai-answer ol {
+      .slide-ask-ai-message-user .slide-ask-ai-message-body h1,
+      .slide-ask-ai-message-user .slide-ask-ai-message-body h2,
+      .slide-ask-ai-message-user .slide-ask-ai-message-body h3,
+      .slide-ask-ai-message-user .slide-ask-ai-message-body h4,
+      .slide-ask-ai-message-user .slide-ask-ai-message-body h5,
+      .slide-ask-ai-message-user .slide-ask-ai-message-body h6 {
+        color: #0f172a;
+      }
+
+      .slide-ask-ai-message-body ul,
+      .slide-ask-ai-message-body ol {
         padding-left: 20px;
       }
 
-      .slide-ask-ai-answer li + li {
+      .slide-ask-ai-message-body li + li {
         margin-top: 6px;
       }
 
-      .slide-ask-ai-answer blockquote {
+      .slide-ask-ai-message-body blockquote {
         padding: 10px 12px;
         border-left: 3px solid rgba(96, 165, 250, 0.8);
         background: rgba(30, 41, 59, 0.6);
         color: #cbd5e1;
       }
 
-      .slide-ask-ai-answer pre {
+      .slide-ask-ai-message-user .slide-ask-ai-message-body blockquote {
+        background: rgba(203, 213, 225, 0.55);
+        color: #334155;
+      }
+
+      .slide-ask-ai-message-body pre {
         overflow: auto;
         padding: 12px;
         border-radius: 12px;
         background: rgba(2, 6, 23, 0.95);
       }
 
-      .slide-ask-ai-answer code {
+      .slide-ask-ai-message-body code {
         font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
         font-size: 12px;
       }
 
-      .slide-ask-ai-answer :not(pre) > code {
+      .slide-ask-ai-message-body :not(pre) > code {
         padding: 2px 6px;
         border-radius: 999px;
         background: rgba(51, 65, 85, 0.85);
         color: #bfdbfe;
       }
 
-      .slide-ask-ai-answer a {
+      .slide-ask-ai-message-user .slide-ask-ai-message-body :not(pre) > code {
+        background: rgba(148, 163, 184, 0.55);
+        color: #1e293b;
+      }
+
+      .slide-ask-ai-message-body a {
         color: #7dd3fc;
         text-decoration: underline;
       }
 
-      .slide-ask-ai-answer-empty {
-        display: none;
+      .slide-ask-ai-message-user .slide-ask-ai-message-body a {
+        color: #0369a1;
+      }
+
+      .slide-ask-ai-composer {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        padding-top: 2px;
+      }
+
+      .slide-ask-ai-input {
+        flex: 1;
+        min-height: 44px;
+        max-height: 120px;
+        resize: none;
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        border-radius: 16px;
+        padding: 12px 14px;
+        font: 500 14px/1.5 "Segoe UI", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+        color: #0f172a;
+        background: rgba(255, 255, 255, 0.82);
+        outline: none;
+      }
+
+      .slide-ask-ai-input::placeholder {
+        color: #94a3b8;
+      }
+
+      .slide-ask-ai-send {
+        flex: none;
+        border: 0;
+        border-radius: 999px;
+        padding: 11px 16px;
+        background: linear-gradient(135deg, #0f766e, #2563eb);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .slide-ask-ai-send:disabled,
+      .slide-ask-ai-input:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
       }
     </style>
     <div class="slide-ask-ai-layer">
       <button class="slide-ask-ai-trigger slide-ask-ai-hidden" type="button">问 AI</button>
       <section class="slide-ask-ai-panel slide-ask-ai-hidden">
         <div class="slide-ask-ai-status"></div>
-        <div class="slide-ask-ai-answer slide-ask-ai-hidden"></div>
+        <div class="slide-ask-ai-thread slide-ask-ai-hidden"></div>
+        <div class="slide-ask-ai-composer">
+          <textarea
+            class="slide-ask-ai-input"
+            placeholder="继续追问..."
+            rows="1"
+          ></textarea>
+          <button class="slide-ask-ai-send" type="button">发送</button>
+        </div>
       </section>
     </div>
   `;
@@ -417,12 +531,31 @@ function ensureUI() {
     trigger: shadow.querySelector(".slide-ask-ai-trigger"),
     panel: shadow.querySelector(".slide-ask-ai-panel"),
     status: shadow.querySelector(".slide-ask-ai-status"),
-    answer: shadow.querySelector(".slide-ask-ai-answer")
+    thread: shadow.querySelector(".slide-ask-ai-thread"),
+    input: shadow.querySelector(".slide-ask-ai-input"),
+    send: shadow.querySelector(".slide-ask-ai-send")
   };
 
   elements.trigger.addEventListener("click", openPanelFromSelection);
+  elements.send.addEventListener("click", submitFollowUp);
+  elements.input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void submitFollowUp();
+    }
+  });
+  elements.input.addEventListener("input", () => {
+    autoResizeInput();
+    renderPanel();
+  });
 
   return elements;
+}
+
+function autoResizeInput() {
+  const ui = ensureUI();
+  ui.input.style.height = "auto";
+  ui.input.style.height = `${Math.min(ui.input.scrollHeight, 120)}px`;
 }
 
 function hideTrigger() {
@@ -444,19 +577,28 @@ function renderPanel() {
 
   ui.status.textContent = state.statusMessage;
   ui.status.classList.toggle("slide-ask-ai-hidden", !state.statusMessage);
+  ui.input.disabled = state.loading || !state.selectedText;
+  ui.send.disabled = state.loading || !state.selectedText || !ui.input.value.trim();
 
-  if (state.answer) {
-    ui.answer.innerHTML = renderMarkdown(state.answer);
-    ui.answer.classList.remove("slide-ask-ai-hidden");
+  const visibleMessages = state.messages.filter((message) => !message.hidden);
+
+  if (visibleMessages.length > 0) {
+    ui.thread.innerHTML = visibleMessages.map(renderChatMessage).join("");
+    ui.thread.classList.remove("slide-ask-ai-hidden");
   } else {
-    ui.answer.innerHTML = "";
-    ui.answer.classList.add("slide-ask-ai-hidden");
+    ui.thread.innerHTML = "";
+    ui.thread.classList.add("slide-ask-ai-hidden");
   }
 
   if (state.panelOpen) {
     ui.panel.classList.remove("slide-ask-ai-hidden");
   } else {
     ui.panel.classList.add("slide-ask-ai-hidden");
+  }
+
+  if (state.panelOpen) {
+    ui.input.placeholder = visibleMessages.length > 0 ? "继续追问..." : "输入问题...";
+    ui.thread.scrollTop = ui.thread.scrollHeight;
   }
 }
 
@@ -466,18 +608,20 @@ function openPanelFromSelection() {
   }
 
   state.panelOpen = true;
-  state.answer = "";
+  state.messages = [];
   state.statusMessage = "AI 正在思考...";
   hideTrigger();
   renderPanel();
-  void askSelectedText();
+  void startConversation();
 }
 
 function closePanel() {
   state.panelOpen = false;
   state.loading = false;
-  state.answer = "";
+  state.messages = [];
   state.statusMessage = "";
+  ensureUI().input.value = "";
+  autoResizeInput();
   renderPanel();
 }
 
@@ -492,24 +636,26 @@ async function submitQuestion() {
   }
 
   state.loading = true;
-  state.answer = "";
   state.statusMessage = "AI 正在思考...";
   renderPanel();
 
   try {
     const response = await chrome.runtime.sendMessage({
       type: "ASK_AI",
-      selectedText: state.selectedText
+      selectedText: state.selectedText,
+      conversationHistory: state.messages.map(({ role, content }) => ({ role, content }))
     });
 
     if (!response?.ok) {
       throw new Error(response?.error || "AI 请求失败。");
     }
 
-    state.answer = response.answer;
+    state.messages.push({
+      role: "assistant",
+      content: response.answer
+    });
     updateStatus("");
   } catch (error) {
-    state.answer = "";
     updateStatus(error instanceof Error ? error.message : "请求失败，请稍后重试。");
   } finally {
     state.loading = false;
@@ -519,6 +665,35 @@ async function submitQuestion() {
 
 async function askSelectedText() {
   await submitQuestion();
+}
+
+async function startConversation() {
+  state.messages = [
+    {
+      role: "user",
+      content: DEFAULT_OPENING_QUESTION,
+      hidden: true
+    }
+  ];
+  await askSelectedText();
+}
+
+async function submitFollowUp() {
+  const ui = ensureUI();
+  const followUp = ui.input.value.trim();
+
+  if (!followUp || state.loading || !state.selectedText) {
+    return;
+  }
+
+  state.messages.push({
+    role: "user",
+    content: followUp
+  });
+  ui.input.value = "";
+  autoResizeInput();
+  renderPanel();
+  await askSelectedText();
 }
 
 function syncSelection() {
