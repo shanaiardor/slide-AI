@@ -19,6 +19,9 @@ let streamTimer = 0;
 let streamMessageIndex = -1;
 let streamPort = null;
 let pendingStreamCompletion = null;
+let triggerAttentionTimer = 0;
+let triggerAttentionVisible = false;
+let triggerPointerNear = false;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -346,13 +349,45 @@ function ensureUI() {
         position: fixed;
         border: 0;
         border-radius: 999px;
-        padding: 10px 14px;
-        background: linear-gradient(135deg, #0f766e, #2563eb);
-        color: #fff;
-        box-shadow: 0 14px 34px rgba(15, 23, 42, 0.22);
-        font-size: 13px;
-        font-weight: 700;
+        width: 14px;
+        height: 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        background: rgba(255, 255, 255, 0.82);
+        color: #2563eb;
+        border: 1px solid rgba(148, 163, 184, 0.32);
+        backdrop-filter: blur(12px);
+        font-size: 0;
         cursor: pointer;
+        opacity: 0.26;
+        transform: scale(0.94);
+        transition:
+          transform 140ms ease,
+          border-color 140ms ease,
+          background 140ms ease,
+          opacity 140ms ease;
+      }
+
+      .slide-ask-ai-trigger:hover,
+      .slide-ask-ai-trigger.slide-ask-ai-trigger-active {
+        opacity: 0.92;
+        transform: translateY(-1px) scale(1);
+        background: rgba(255, 255, 255, 0.96);
+        border-color: rgba(37, 99, 235, 0.28);
+      }
+
+      .slide-ask-ai-trigger:focus-visible {
+        opacity: 0.92;
+        outline: 0;
+        border-color: rgba(37, 99, 235, 0.35);
+      }
+
+      .slide-ask-ai-trigger svg {
+        width: 7px;
+        height: 7px;
+        display: block;
       }
 
       .slide-ask-ai-panel {
@@ -389,6 +424,14 @@ function ensureUI() {
         display: flex;
         flex-direction: column;
         gap: 10px;
+        padding-right: 4px;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      .slide-ask-ai-thread::-webkit-scrollbar {
+        width: 0;
+        height: 0;
       }
 
       .slide-ask-ai-message {
@@ -418,7 +461,6 @@ function ensureUI() {
         color: #0f172a;
         border-top-left-radius: 8px;
         border: 1px solid rgba(226, 232, 240, 0.92);
-        box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
       }
 
       .slide-ask-ai-message-user .slide-ask-ai-message-body {
@@ -561,23 +603,33 @@ function ensureUI() {
 
       .slide-ask-ai-composer {
         display: flex;
-        align-items: flex-end;
+        align-items: center;
         gap: 10px;
         padding-top: 2px;
       }
 
       .slide-ask-ai-input {
         flex: 1;
-        min-height: 44px;
+        height: 46px;
+        min-height: 46px;
         max-height: 120px;
         resize: none;
+        overflow-y: auto;
         border: 1px solid rgba(148, 163, 184, 0.28);
-        border-radius: 16px;
-        padding: 12px 14px;
-        font: 500 14px/1.5 "Segoe UI", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+        border-radius: 15px;
+        padding: 8px 13px;
+        font: 500 14px/1.45 "Segoe UI", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
         color: #0f172a;
         background: rgba(255, 255, 255, 0.82);
         outline: none;
+        transition:
+          background 180ms ease,
+          border-color 180ms ease;
+      }
+
+      .slide-ask-ai-input:focus {
+        border-color: rgba(37, 99, 235, 0.3);
+        background: rgba(255, 255, 255, 0.92);
       }
 
       .slide-ask-ai-input::placeholder {
@@ -588,11 +640,14 @@ function ensureUI() {
         flex: none;
         border: 0;
         border-radius: 999px;
-        padding: 11px 16px;
+        height: 46px;
+        min-height: 46px;
+        padding: 0 16px;
         background: linear-gradient(135deg, #0f766e, #2563eb);
         color: #fff;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
+        line-height: 1;
         cursor: pointer;
       }
 
@@ -603,7 +658,19 @@ function ensureUI() {
       }
     </style>
     <div class="slide-ask-ai-layer">
-      <button class="slide-ask-ai-trigger slide-ask-ai-hidden" type="button">问 AI</button>
+      <button class="slide-ask-ai-trigger slide-ask-ai-hidden" type="button" aria-label="问 AI">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+          <path
+            d="M12 3L13.9 8.1L19 10L13.9 11.9L12 17L10.1 11.9L5 10L10.1 8.1L12 3Z"
+            fill="currentColor"
+          />
+          <path
+            d="M18.5 16L19.2 17.8L21 18.5L19.2 19.2L18.5 21L17.8 19.2L16 18.5L17.8 17.8L18.5 16Z"
+            fill="currentColor"
+            opacity="0.9"
+          />
+        </svg>
+      </button>
       <section class="slide-ask-ai-panel slide-ask-ai-hidden">
         <div class="slide-ask-ai-status"></div>
         <div class="slide-ask-ai-thread slide-ask-ai-hidden"></div>
@@ -639,7 +706,6 @@ function ensureUI() {
     }
   });
   elements.input.addEventListener("input", () => {
-    autoResizeInput();
     renderPanel();
   });
 
@@ -648,8 +714,7 @@ function ensureUI() {
 
 function autoResizeInput() {
   const ui = ensureUI();
-  ui.input.style.height = "auto";
-  ui.input.style.height = `${Math.min(ui.input.scrollHeight, 120)}px`;
+  ui.input.style.height = "46px";
 }
 
 function resetStreamState() {
@@ -712,17 +777,73 @@ function enqueueStreamDelta(delta) {
 }
 
 function hideTrigger() {
-  ensureUI().trigger.classList.add("slide-ask-ai-hidden");
+  const ui = ensureUI();
+  ui.trigger.classList.add("slide-ask-ai-hidden");
+  ui.trigger.classList.remove("slide-ask-ai-trigger-active");
+  triggerPointerNear = false;
+  triggerAttentionVisible = false;
+
+  if (triggerAttentionTimer) {
+    window.clearTimeout(triggerAttentionTimer);
+    triggerAttentionTimer = 0;
+  }
+}
+
+function syncTriggerAppearance() {
+  if (!elements) {
+    return;
+  }
+
+  elements.trigger.classList.toggle(
+    "slide-ask-ai-trigger-active",
+    triggerPointerNear || triggerAttentionVisible
+  );
+}
+
+function pulseTriggerAttention() {
+  triggerAttentionVisible = true;
+  syncTriggerAppearance();
+
+  if (triggerAttentionTimer) {
+    window.clearTimeout(triggerAttentionTimer);
+  }
+
+  triggerAttentionTimer = window.setTimeout(() => {
+    triggerAttentionVisible = false;
+    triggerAttentionTimer = 0;
+    syncTriggerAppearance();
+  }, 1200);
+}
+
+function updateTriggerProximity(clientX, clientY) {
+  if (!elements || elements.trigger.classList.contains("slide-ask-ai-hidden")) {
+    if (triggerPointerNear) {
+      triggerPointerNear = false;
+      syncTriggerAppearance();
+    }
+    return;
+  }
+
+  const rect = elements.trigger.getBoundingClientRect();
+  const dx = Math.max(rect.left - clientX, 0, clientX - rect.right);
+  const dy = Math.max(rect.top - clientY, 0, clientY - rect.bottom);
+  const nextValue = Math.hypot(dx, dy) <= 44;
+
+  if (nextValue !== triggerPointerNear) {
+    triggerPointerNear = nextValue;
+    syncTriggerAppearance();
+  }
 }
 
 function showTrigger(rect) {
   const ui = ensureUI();
-  const top = clamp(rect.bottom + 10, 12, window.innerHeight - 52);
-  const left = clamp(rect.right - 88, 12, window.innerWidth - 92);
+  const top = clamp(rect.bottom + 4, 6, window.innerHeight - 20);
+  const left = clamp(rect.right + 4, 6, window.innerWidth - 20);
 
   ui.trigger.style.top = `${top}px`;
   ui.trigger.style.left = `${left}px`;
   ui.trigger.classList.remove("slide-ask-ai-hidden");
+  pulseTriggerAttention();
 }
 
 function renderPanel() {
@@ -745,6 +866,10 @@ function renderPanel() {
     !hasAssistantResponse ||
     !ui.input.value.trim() ||
     !state.extensionContextValid;
+
+  if (hasAssistantResponse) {
+    autoResizeInput();
+  }
 
   if (visibleMessages.length > 0) {
     ui.thread.innerHTML = visibleMessages.map(renderChatMessage).join("");
@@ -955,6 +1080,10 @@ document.addEventListener("keydown", (event) => {
     closePanel();
   }
 });
+
+document.addEventListener("mousemove", (event) => {
+  updateTriggerProximity(event.clientX, event.clientY);
+}, true);
 
 document.addEventListener("mousedown", (event) => {
   if (!state.panelOpen || !elements) {
