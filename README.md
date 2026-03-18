@@ -13,7 +13,7 @@
 - 页面浮层支持继续追问，形成一个简洁的对话窗口
 - AI 回复支持流式逐字输出，不再等整段生成完成后一次性展示
 - 在插件弹窗中配置 API Key、Base URL、Model 和系统提示词
-- 识别 `doubao-seed` 模型时可配置 `reasoning_effort`
+- 可配置 `reasoning_effort`
 - 插件弹窗显示最近一次请求的性能指标，如首 token 延迟和 token 速度
 
 ## 目录结构
