@@ -169,6 +169,23 @@ function extractChatCompletionsText(data) {
   return "";
 }
 
+function extractChatCompletionsDelta(data) {
+  const content = data?.choices?.[0]?.delta?.content;
+
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => item?.text || "")
+      .filter(Boolean)
+      .join("");
+  }
+
+  return "";
+}
+
 function trimSelection(text) {
   const normalized = (text || "").trim();
   return normalized.length > 12000 ? normalized.slice(0, 12000) : normalized;
@@ -294,7 +311,8 @@ function buildPerformanceMetrics({
   totalLatencyMs,
   firstChunkLatencyMs,
   completionTokens,
-  status
+  status,
+  firstTokenLatencyApproximate = true
 }) {
   const generationMs =
     typeof firstChunkLatencyMs === "number" && totalLatencyMs > firstChunkLatencyMs
@@ -315,9 +333,174 @@ function buildPerformanceMetrics({
     status,
     totalLatencyMs,
     firstTokenLatencyMs: firstChunkLatencyMs,
-    firstTokenLatencyApproximate: true,
+    firstTokenLatencyApproximate,
     completionTokens: typeof completionTokens === "number" ? completionTokens : null,
     tokenSpeed
+  };
+}
+
+function safePortPostMessage(port, payload) {
+  try {
+    port.postMessage(payload);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function streamChatCompletions(endpoint, settings, apiKey, messages, port) {
+  const model = (settings.model || DEFAULT_SETTINGS.model).trim();
+  const startedAtIso = new Date().toISOString();
+  const startedAtPerf = performance.now();
+  const payload = {
+    model,
+    stream: true,
+    messages
+  };
+
+  if (
+    isDoubaoSeedModel(model) &&
+    ["minimal", "low", "medium", "high"].includes(settings.reasoningEffort)
+  ) {
+    payload.reasoning_effort = settings.reasoningEffort;
+  }
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const { data, totalLatencyMs, firstChunkLatencyMs } = await readJsonResponseWithTiming(
+      response,
+      startedAtPerf
+    );
+
+    await saveLastRequestMetrics(
+      buildPerformanceMetrics({
+        startedAtIso,
+        endpoint,
+        endpointMode: "chat/completions",
+        model,
+        totalLatencyMs,
+        firstChunkLatencyMs,
+        completionTokens: data?.usage?.completion_tokens ?? null,
+        status: "error",
+        firstTokenLatencyApproximate: true
+      })
+    );
+
+    throw createHttpError(response, data, endpoint);
+  }
+
+  if (!response.body) {
+    throw new Error("当前服务未返回可流式读取的响应体。");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let answer = "";
+  let usage = null;
+  let firstTokenLatencyMs = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    while (buffer.includes("\n\n")) {
+      const splitIndex = buffer.indexOf("\n\n");
+      const rawEvent = buffer.slice(0, splitIndex);
+      buffer = buffer.slice(splitIndex + 2);
+
+      const dataLines = rawEvent
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim())
+        .filter(Boolean);
+
+      if (dataLines.length === 0) {
+        continue;
+      }
+
+      const dataText = dataLines.join("\n");
+
+      if (dataText === "[DONE]") {
+        continue;
+      }
+
+      let chunk;
+
+      try {
+        chunk = JSON.parse(dataText);
+      } catch {
+        continue;
+      }
+
+      if (chunk?.usage) {
+        usage = chunk.usage;
+      }
+
+      const deltaText = extractChatCompletionsDelta(chunk);
+
+      if (!deltaText) {
+        continue;
+      }
+
+      if (firstTokenLatencyMs === null) {
+        firstTokenLatencyMs = Math.round(performance.now() - startedAtPerf);
+      }
+
+      answer += deltaText;
+
+      if (
+        !safePortPostMessage(port, {
+          type: "chunk",
+          delta: deltaText
+        })
+      ) {
+        return {
+          answer,
+          endpointMode: "chat/completions"
+        };
+      }
+    }
+  }
+
+  answer = answer.trim();
+
+  if (!answer) {
+    throw new Error(`AI 已返回结果，但没有解析出可展示的文本。(${endpoint})`);
+  }
+
+  const totalLatencyMs = Math.round(performance.now() - startedAtPerf);
+
+  await saveLastRequestMetrics(
+    buildPerformanceMetrics({
+      startedAtIso,
+      endpoint,
+      endpointMode: "chat/completions",
+      model,
+      totalLatencyMs,
+      firstChunkLatencyMs: firstTokenLatencyMs,
+      completionTokens: usage?.completion_tokens ?? null,
+      status: "success",
+      firstTokenLatencyApproximate: false
+    })
+  );
+
+  return {
+    answer,
+    endpointMode: "chat/completions"
   };
 }
 
@@ -568,12 +751,99 @@ async function askAI(message) {
   };
 }
 
+async function streamAskAI(message, port) {
+  const settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
+  const apiKey = (settings.apiKey || "").trim();
+  const selectedText = trimSelection(message.selectedText);
+  const conversationHistory = getEffectiveConversationHistory(message);
+
+  if (!selectedText) {
+    safePortPostMessage(port, {
+      type: "error",
+      error: "没有检测到选中文本。"
+    });
+    return;
+  }
+
+  if (!apiKey) {
+    safePortPostMessage(port, {
+      type: "error",
+      error: "请先在插件弹窗中配置 API Key。"
+    });
+    return;
+  }
+
+  const systemPrompt = (settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt).trim();
+  const promptText = buildPromptText(selectedText, conversationHistory);
+  const chatMessages = buildChatMessages(systemPrompt, selectedText, conversationHistory);
+  const requestMode = settings.apiMode || DEFAULT_SETTINGS.apiMode;
+  const modes =
+    requestMode === "responses"
+      ? ["responses"]
+      : requestMode === "chat_completions"
+        ? ["chat_completions"]
+        : ["chat_completions", "responses"];
+
+  for (const mode of modes) {
+    const endpoint = resolveEndpoint(settings.apiBaseUrl, mode);
+
+    try {
+      const result =
+        mode === "chat_completions"
+          ? await streamChatCompletions(endpoint, settings, apiKey, chatMessages, port)
+          : await requestResponses(endpoint, settings, apiKey, promptText);
+
+      if (mode === "responses") {
+        safePortPostMessage(port, {
+          type: "chunk",
+          delta: result.answer
+        });
+      }
+
+      safePortPostMessage(port, {
+        type: "done",
+        answer: result.answer,
+        endpointMode: result.endpointMode,
+        model: (settings.model || DEFAULT_SETTINGS.model).trim()
+      });
+      return;
+    } catch (error) {
+      if (requestMode !== "auto" || error?.status !== 404) {
+        safePortPostMessage(port, {
+          type: "error",
+          error: error instanceof Error ? error.message : "未知错误"
+        });
+        return;
+      }
+    }
+  }
+
+  safePortPostMessage(port, {
+    type: "error",
+    error: "AI 请求失败。"
+  });
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   void ensureDefaults();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void ensureDefaults();
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "ask-ai-stream") {
+    return;
+  }
+
+  port.onMessage.addListener((message) => {
+    if (message?.type !== "ASK_AI_STREAM") {
+      return;
+    }
+
+    void streamAskAI(message, port);
+  });
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

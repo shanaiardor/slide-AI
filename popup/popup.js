@@ -113,8 +113,9 @@ function renderMetrics(metrics) {
     return;
   }
 
-  metricsStatus.textContent =
-    "首 token 延迟按首个响应分块近似计算；token 速度基于 completion tokens 计算。";
+  metricsStatus.textContent = metrics.firstTokenLatencyApproximate
+    ? "首 token 延迟按首个响应分块近似计算；token 速度基于 completion tokens 计算。"
+    : "首 token 延迟来自流式响应；token 速度基于 completion tokens 计算。";
   metricsMeta.textContent = [
     `模型：${metrics.model || "-"}`,
     `接口：${metrics.endpointMode || "-"}`,

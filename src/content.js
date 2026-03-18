@@ -8,11 +8,17 @@ const state = {
   panelOpen: false,
   loading: false,
   messages: [],
-  statusMessage: ""
+  statusMessage: "",
+  extensionContextValid: true
 };
 
 let elements = null;
 let selectionTimer = 0;
+let streamQueue = "";
+let streamTimer = 0;
+let streamMessageIndex = -1;
+let streamPort = null;
+let pendingStreamCompletion = null;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -188,14 +194,60 @@ function renderChatMessage(message) {
   const role = message.role === "user" ? "user" : "assistant";
   const body =
     role === "assistant"
-      ? renderMarkdown(message.content)
+      ? message.streaming && !message.content
+        ? `
+          <div class="slide-ask-ai-typing" aria-label="AI 正在生成">
+            <span></span><span></span><span></span>
+          </div>
+        `
+        : renderMarkdown(message.content)
       : `<p>${renderInlineMarkdown(message.content)}</p>`;
 
   return `
-    <article class="slide-ask-ai-message slide-ask-ai-message-${role}">
+    <article class="slide-ask-ai-message slide-ask-ai-message-${role} ${message.streaming ? "slide-ask-ai-message-streaming" : ""}">
       <div class="slide-ask-ai-message-body">${body}</div>
     </article>
   `;
+}
+
+function isExtensionContextInvalidError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return message.includes("Extension context invalidated");
+}
+
+function handleExtensionContextInvalidated() {
+  state.extensionContextValid = false;
+  state.loading = false;
+  state.panelOpen = true;
+  state.statusMessage = "扩展已更新，请刷新当前网页后再试。";
+  hideTrigger();
+  renderPanel();
+}
+
+async function safeRuntimeSendMessage(payload) {
+  try {
+    return await chrome.runtime.sendMessage(payload);
+  } catch (error) {
+    if (isExtensionContextInvalidError(error)) {
+      handleExtensionContextInvalidated();
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+function safeRuntimeConnect(name) {
+  try {
+    return chrome.runtime.connect({ name });
+  } catch (error) {
+    if (isExtensionContextInvalidError(error)) {
+      handleExtensionContextInvalidated();
+      return null;
+    }
+
+    throw error;
+  }
 }
 
 function getInputSelection() {
@@ -360,15 +412,20 @@ function ensureUI() {
       }
 
       .slide-ask-ai-message-assistant .slide-ask-ai-message-body {
-        background: #0f172a;
-        color: #e2e8f0;
+        background:
+          radial-gradient(circle at top right, rgba(125, 211, 252, 0.18), transparent 34%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.95));
+        color: #0f172a;
         border-top-left-radius: 8px;
+        border: 1px solid rgba(226, 232, 240, 0.92);
+        box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
       }
 
       .slide-ask-ai-message-user .slide-ask-ai-message-body {
-        background: rgba(226, 232, 240, 0.9);
-        color: #0f172a;
+        background: linear-gradient(135deg, #0f766e, #2563eb);
+        color: #eff6ff;
         border-top-right-radius: 8px;
+        box-shadow: 0 12px 28px rgba(37, 99, 235, 0.16);
       }
 
       .slide-ask-ai-message-body > :first-child {
@@ -399,7 +456,7 @@ function ensureUI() {
       .slide-ask-ai-message-body h4,
       .slide-ask-ai-message-body h5,
       .slide-ask-ai-message-body h6 {
-        color: #f8fafc;
+        color: #0f172a;
         line-height: 1.35;
       }
 
@@ -409,7 +466,7 @@ function ensureUI() {
       .slide-ask-ai-message-user .slide-ask-ai-message-body h4,
       .slide-ask-ai-message-user .slide-ask-ai-message-body h5,
       .slide-ask-ai-message-user .slide-ask-ai-message-body h6 {
-        color: #0f172a;
+        color: #eff6ff;
       }
 
       .slide-ask-ai-message-body ul,
@@ -423,21 +480,22 @@ function ensureUI() {
 
       .slide-ask-ai-message-body blockquote {
         padding: 10px 12px;
-        border-left: 3px solid rgba(96, 165, 250, 0.8);
-        background: rgba(30, 41, 59, 0.6);
-        color: #cbd5e1;
+        border-left: 3px solid rgba(37, 99, 235, 0.55);
+        background: rgba(241, 245, 249, 0.9);
+        color: #334155;
       }
 
       .slide-ask-ai-message-user .slide-ask-ai-message-body blockquote {
-        background: rgba(203, 213, 225, 0.55);
-        color: #334155;
+        background: rgba(255, 255, 255, 0.14);
+        color: #dbeafe;
       }
 
       .slide-ask-ai-message-body pre {
         overflow: auto;
         padding: 12px;
         border-radius: 12px;
-        background: rgba(2, 6, 23, 0.95);
+        background: rgba(15, 23, 42, 0.08);
+        border: 1px solid rgba(148, 163, 184, 0.22);
       }
 
       .slide-ask-ai-message-body code {
@@ -448,22 +506,57 @@ function ensureUI() {
       .slide-ask-ai-message-body :not(pre) > code {
         padding: 2px 6px;
         border-radius: 999px;
-        background: rgba(51, 65, 85, 0.85);
-        color: #bfdbfe;
+        background: rgba(226, 232, 240, 0.95);
+        color: #0f172a;
       }
 
       .slide-ask-ai-message-user .slide-ask-ai-message-body :not(pre) > code {
-        background: rgba(148, 163, 184, 0.55);
-        color: #1e293b;
+        background: rgba(255, 255, 255, 0.16);
+        color: #eff6ff;
       }
 
       .slide-ask-ai-message-body a {
-        color: #7dd3fc;
+        color: #2563eb;
         text-decoration: underline;
       }
 
       .slide-ask-ai-message-user .slide-ask-ai-message-body a {
-        color: #0369a1;
+        color: #dbeafe;
+      }
+
+      .slide-ask-ai-typing {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 18px;
+      }
+
+      .slide-ask-ai-typing span {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: rgba(59, 130, 246, 0.65);
+        animation: slide-ask-ai-pulse 1s infinite ease-in-out;
+      }
+
+      .slide-ask-ai-typing span:nth-child(2) {
+        animation-delay: 0.12s;
+      }
+
+      .slide-ask-ai-typing span:nth-child(3) {
+        animation-delay: 0.24s;
+      }
+
+      @keyframes slide-ask-ai-pulse {
+        0%, 80%, 100% {
+          transform: translateY(0);
+          opacity: 0.35;
+        }
+
+        40% {
+          transform: translateY(-2px);
+          opacity: 1;
+        }
       }
 
       .slide-ask-ai-composer {
@@ -532,6 +625,7 @@ function ensureUI() {
     panel: shadow.querySelector(".slide-ask-ai-panel"),
     status: shadow.querySelector(".slide-ask-ai-status"),
     thread: shadow.querySelector(".slide-ask-ai-thread"),
+    composer: shadow.querySelector(".slide-ask-ai-composer"),
     input: shadow.querySelector(".slide-ask-ai-input"),
     send: shadow.querySelector(".slide-ask-ai-send")
   };
@@ -558,6 +652,65 @@ function autoResizeInput() {
   ui.input.style.height = `${Math.min(ui.input.scrollHeight, 120)}px`;
 }
 
+function resetStreamState() {
+  if (streamTimer) {
+    window.clearTimeout(streamTimer);
+  }
+
+  if (streamPort) {
+    try {
+      streamPort.disconnect();
+    } catch {}
+  }
+
+  streamQueue = "";
+  streamTimer = 0;
+  streamMessageIndex = -1;
+  streamPort = null;
+  pendingStreamCompletion = null;
+}
+
+function finalizeStream() {
+  if (streamMessageIndex >= 0 && state.messages[streamMessageIndex]) {
+    state.messages[streamMessageIndex].streaming = false;
+  }
+
+  state.loading = false;
+  state.statusMessage = "";
+  renderPanel();
+  resetStreamState();
+}
+
+function flushStreamQueue() {
+  if (streamMessageIndex < 0 || !state.messages[streamMessageIndex]) {
+    resetStreamState();
+    return;
+  }
+
+  if (!streamQueue) {
+    streamTimer = 0;
+
+    if (pendingStreamCompletion) {
+      finalizeStream();
+    }
+
+    return;
+  }
+
+  state.messages[streamMessageIndex].content += streamQueue[0];
+  streamQueue = streamQueue.slice(1);
+  renderPanel();
+  streamTimer = window.setTimeout(flushStreamQueue, 14);
+}
+
+function enqueueStreamDelta(delta) {
+  streamQueue += delta;
+
+  if (!streamTimer) {
+    flushStreamQueue();
+  }
+}
+
 function hideTrigger() {
   ensureUI().trigger.classList.add("slide-ask-ai-hidden");
 }
@@ -577,10 +730,21 @@ function renderPanel() {
 
   ui.status.textContent = state.statusMessage;
   ui.status.classList.toggle("slide-ask-ai-hidden", !state.statusMessage);
-  ui.input.disabled = state.loading || !state.selectedText;
-  ui.send.disabled = state.loading || !state.selectedText || !ui.input.value.trim();
 
   const visibleMessages = state.messages.filter((message) => !message.hidden);
+  const hasAssistantResponse = visibleMessages.some(
+    (message) => message.role === "assistant" && !message.streaming && message.content.trim()
+  );
+
+  ui.composer.classList.toggle("slide-ask-ai-hidden", !hasAssistantResponse);
+  ui.input.disabled =
+    state.loading || !state.selectedText || !hasAssistantResponse || !state.extensionContextValid;
+  ui.send.disabled =
+    state.loading ||
+    !state.selectedText ||
+    !hasAssistantResponse ||
+    !ui.input.value.trim() ||
+    !state.extensionContextValid;
 
   if (visibleMessages.length > 0) {
     ui.thread.innerHTML = visibleMessages.map(renderChatMessage).join("");
@@ -597,7 +761,7 @@ function renderPanel() {
   }
 
   if (state.panelOpen) {
-    ui.input.placeholder = visibleMessages.length > 0 ? "继续追问..." : "输入问题...";
+    ui.input.placeholder = "继续追问...";
     ui.thread.scrollTop = ui.thread.scrollHeight;
   }
 }
@@ -607,9 +771,14 @@ function openPanelFromSelection() {
     return;
   }
 
+  if (!state.extensionContextValid) {
+    handleExtensionContextInvalidated();
+    return;
+  }
+
   state.panelOpen = true;
   state.messages = [];
-  state.statusMessage = "AI 正在思考...";
+  state.statusMessage = "";
   hideTrigger();
   renderPanel();
   void startConversation();
@@ -620,6 +789,8 @@ function closePanel() {
   state.loading = false;
   state.messages = [];
   state.statusMessage = "";
+  state.extensionContextValid = true;
+  resetStreamState();
   ensureUI().input.value = "";
   autoResizeInput();
   renderPanel();
@@ -631,34 +802,84 @@ function updateStatus(message) {
 }
 
 async function submitQuestion() {
-  if (!state.selectedText || state.loading) {
+  if (!state.selectedText || state.loading || !state.extensionContextValid) {
     return;
   }
 
   state.loading = true;
-  state.statusMessage = "AI 正在思考...";
+  state.statusMessage = "";
+  resetStreamState();
+  state.messages.push({
+    role: "assistant",
+    content: "",
+    streaming: true
+  });
+  streamMessageIndex = state.messages.length - 1;
   renderPanel();
 
   try {
-    const response = await chrome.runtime.sendMessage({
-      type: "ASK_AI",
-      selectedText: state.selectedText,
-      conversationHistory: state.messages.map(({ role, content }) => ({ role, content }))
-    });
+    streamPort = safeRuntimeConnect("ask-ai-stream");
 
-    if (!response?.ok) {
-      throw new Error(response?.error || "AI 请求失败。");
+    if (!streamPort) {
+      return;
     }
 
-    state.messages.push({
-      role: "assistant",
-      content: response.answer
+    streamPort.onMessage.addListener((message) => {
+      if (message?.type === "chunk") {
+        enqueueStreamDelta(message.delta || "");
+        return;
+      }
+
+      if (message?.type === "done") {
+        pendingStreamCompletion = message;
+
+        if (!streamQueue && !streamTimer) {
+          finalizeStream();
+        }
+
+        return;
+      }
+
+      if (message?.type === "error") {
+        if (streamMessageIndex >= 0 && state.messages[streamMessageIndex]?.streaming) {
+          state.messages.splice(streamMessageIndex, 1);
+        }
+
+        resetStreamState();
+        state.loading = false;
+        updateStatus(message.error || "请求失败，请稍后重试。");
+        renderPanel();
+      }
     });
-    updateStatus("");
+
+    streamPort.onDisconnect.addListener(() => {
+      if (state.loading && !pendingStreamCompletion && state.extensionContextValid) {
+        if (streamMessageIndex >= 0 && state.messages[streamMessageIndex]?.streaming) {
+          state.messages.splice(streamMessageIndex, 1);
+        }
+
+        resetStreamState();
+        state.loading = false;
+        updateStatus("连接已中断，请稍后重试。");
+        renderPanel();
+      }
+    });
+
+    streamPort.postMessage({
+      type: "ASK_AI_STREAM",
+      selectedText: state.selectedText,
+      conversationHistory: state.messages
+        .filter((message) => String(message.content || "").trim())
+        .map(({ role, content }) => ({ role, content }))
+    });
   } catch (error) {
-    updateStatus(error instanceof Error ? error.message : "请求失败，请稍后重试。");
-  } finally {
+    if (streamMessageIndex >= 0 && state.messages[streamMessageIndex]?.streaming) {
+      state.messages.splice(streamMessageIndex, 1);
+    }
+
+    resetStreamState();
     state.loading = false;
+    updateStatus(error instanceof Error ? error.message : "请求失败，请稍后重试。");
     renderPanel();
   }
 }
