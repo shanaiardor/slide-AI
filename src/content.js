@@ -6,6 +6,7 @@ const state = {
   selectedText: "",
   selectedRect: null,
   panelOpen: false,
+  panelPosition: null,
   loading: false,
   messages: [],
   statusMessage: "",
@@ -22,6 +23,7 @@ let pendingStreamCompletion = null;
 let triggerAttentionTimer = 0;
 let triggerAttentionVisible = false;
 let triggerPointerNear = false;
+let panelDrag = null;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -419,6 +421,38 @@ function ensureUI() {
         backdrop-filter: blur(22px);
       }
 
+      .slide-ask-ai-drag-handle {
+        margin: -4px 0 2px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: grab;
+        user-select: none;
+        touch-action: none;
+      }
+
+      .slide-ask-ai-drag-handle::before {
+        content: "";
+        width: 40px;
+        height: 4px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.38);
+        transition: background 140ms ease;
+      }
+
+      .slide-ask-ai-drag-handle:hover::before {
+        background: rgba(100, 116, 139, 0.52);
+      }
+
+      .slide-ask-ai-panel.slide-ask-ai-panel-dragging .slide-ask-ai-drag-handle {
+        cursor: grabbing;
+      }
+
+      .slide-ask-ai-panel.slide-ask-ai-panel-dragging .slide-ask-ai-drag-handle::before {
+        background: rgba(59, 130, 246, 0.5);
+      }
+
       .slide-ask-ai-status {
         min-height: 0;
         font-size: 13px;
@@ -677,6 +711,7 @@ function ensureUI() {
         </svg>
       </button>
       <section class="slide-ask-ai-panel slide-ask-ai-hidden">
+        <div class="slide-ask-ai-drag-handle" aria-hidden="true"></div>
         <div class="slide-ask-ai-status"></div>
         <div class="slide-ask-ai-thread slide-ask-ai-hidden"></div>
         <div class="slide-ask-ai-composer">
@@ -695,6 +730,7 @@ function ensureUI() {
     host,
     trigger: shadow.querySelector(".slide-ask-ai-trigger"),
     panel: shadow.querySelector(".slide-ask-ai-panel"),
+    handle: shadow.querySelector(".slide-ask-ai-drag-handle"),
     status: shadow.querySelector(".slide-ask-ai-status"),
     thread: shadow.querySelector(".slide-ask-ai-thread"),
     composer: shadow.querySelector(".slide-ask-ai-composer"),
@@ -703,6 +739,7 @@ function ensureUI() {
   };
 
   elements.trigger.addEventListener("click", openPanelFromSelection);
+  elements.handle.addEventListener("pointerdown", startPanelDrag);
   elements.send.addEventListener("click", submitFollowUp);
   elements.input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -850,6 +887,94 @@ function showTrigger(rect) {
   pulseTriggerAttention();
 }
 
+function clampPanelPosition(left, top, panelRect) {
+  const viewportPadding = 12;
+  const maxLeft = Math.max(viewportPadding, window.innerWidth - panelRect.width - viewportPadding);
+  const maxTop = Math.max(viewportPadding, window.innerHeight - panelRect.height - viewportPadding);
+
+  return {
+    left: clamp(left, viewportPadding, maxLeft),
+    top: clamp(top, viewportPadding, maxTop),
+  };
+}
+
+function applyPanelPosition() {
+  const ui = ensureUI();
+
+  if (!state.panelPosition) {
+    ui.panel.style.top = "";
+    ui.panel.style.left = "";
+    ui.panel.style.right = "";
+    return;
+  }
+
+  const panelRect = ui.panel.getBoundingClientRect();
+  const nextPosition = clampPanelPosition(
+    state.panelPosition.left,
+    state.panelPosition.top,
+    panelRect,
+  );
+
+  state.panelPosition = nextPosition;
+  ui.panel.style.top = `${nextPosition.top}px`;
+  ui.panel.style.left = `${nextPosition.left}px`;
+  ui.panel.style.right = "auto";
+}
+
+function stopPanelDrag() {
+  if (!panelDrag || !elements) {
+    return;
+  }
+
+  if (panelDrag.pointerId !== undefined) {
+    try {
+      elements.handle.releasePointerCapture(panelDrag.pointerId);
+    } catch {}
+  }
+
+  elements.panel.classList.remove("slide-ask-ai-panel-dragging");
+  panelDrag = null;
+}
+
+function startPanelDrag(event) {
+  if (!elements || !state.panelOpen || event.button !== 0) {
+    return;
+  }
+
+  const panelRect = elements.panel.getBoundingClientRect();
+  panelDrag = {
+    pointerId: event.pointerId,
+    offsetX: event.clientX - panelRect.left,
+    offsetY: event.clientY - panelRect.top,
+  };
+
+  state.panelPosition = {
+    left: panelRect.left,
+    top: panelRect.top,
+  };
+  elements.panel.classList.add("slide-ask-ai-panel-dragging");
+
+  try {
+    elements.handle.setPointerCapture(event.pointerId);
+  } catch {}
+
+  event.preventDefault();
+}
+
+function dragPanel(event) {
+  if (!panelDrag || !elements || !state.panelOpen) {
+    return;
+  }
+
+  const panelRect = elements.panel.getBoundingClientRect();
+  state.panelPosition = clampPanelPosition(
+    event.clientX - panelDrag.offsetX,
+    event.clientY - panelDrag.offsetY,
+    panelRect,
+  );
+  applyPanelPosition();
+}
+
 function renderPanel() {
   const ui = ensureUI();
 
@@ -891,6 +1016,7 @@ function renderPanel() {
 
   if (state.panelOpen) {
     ui.panel.classList.remove("slide-ask-ai-hidden");
+    applyPanelPosition();
   } else {
     ui.panel.classList.add("slide-ask-ai-hidden");
   }
@@ -925,6 +1051,7 @@ function closePanel() {
   state.messages = [];
   state.statusMessage = "";
   state.extensionContextValid = true;
+  stopPanelDrag();
   resetStreamState();
   ensureUI().input.value = "";
   autoResizeInput();
@@ -1111,9 +1238,23 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener(
-  "mousemove",
+  "pointermove",
   (event) => {
     updateTriggerProximity(event.clientX, event.clientY);
+    dragPanel(event);
+  },
+  true,
+);
+
+document.addEventListener("pointerup", stopPanelDrag, true);
+document.addEventListener("pointercancel", stopPanelDrag, true);
+window.addEventListener("blur", stopPanelDrag);
+window.addEventListener(
+  "resize",
+  () => {
+    if (state.panelOpen && state.panelPosition) {
+      applyPanelPosition();
+    }
   },
   true,
 );
