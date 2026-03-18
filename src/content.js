@@ -9,7 +9,7 @@ const state = {
   loading: false,
   messages: [],
   statusMessage: "",
-  extensionContextValid: true
+  extensionContextValid: true,
 };
 
 let elements = null;
@@ -56,7 +56,9 @@ function sanitizeUrl(url) {
 
   try {
     const resolved = new URL(value, window.location.href);
-    return ["http:", "https:", "mailto:"].includes(resolved.protocol) ? resolved.href : "#";
+    return ["http:", "https:", "mailto:"].includes(resolved.protocol)
+      ? resolved.href
+      : "#";
   } catch {
     return "#";
   }
@@ -75,7 +77,7 @@ function renderInlineMarkdown(text) {
   html = html.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
     (_match, label, url) =>
-      `<a href="${escapeAttribute(sanitizeUrl(url))}" target="_blank" rel="noreferrer noopener">${label}</a>`
+      `<a href="${escapeAttribute(sanitizeUrl(url))}" target="_blank" rel="noreferrer noopener">${label}</a>`,
   );
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, "$1<em>$2</em>");
@@ -89,7 +91,9 @@ function renderInlineMarkdown(text) {
 }
 
 function renderMarkdown(markdown) {
-  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const lines = String(markdown || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n");
   const blocks = [];
   let index = 0;
 
@@ -118,7 +122,7 @@ function renderMarkdown(markdown) {
       }
 
       blocks.push(
-        `<pre><code class="language-${escapeAttribute(language)}">${escapeHtml(codeLines.join("\n"))}</code></pre>`
+        `<pre><code class="language-${escapeAttribute(language)}">${escapeHtml(codeLines.join("\n"))}</code></pre>`,
       );
       continue;
     }
@@ -140,7 +144,9 @@ function renderMarkdown(markdown) {
         index += 1;
       }
 
-      blocks.push(`<blockquote>${renderInlineMarkdown(quoteLines.join("\n"))}</blockquote>`);
+      blocks.push(
+        `<blockquote>${renderInlineMarkdown(quoteLines.join("\n"))}</blockquote>`,
+      );
       continue;
     }
 
@@ -153,7 +159,7 @@ function renderMarkdown(markdown) {
       }
 
       blocks.push(
-        `<ul>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`
+        `<ul>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`,
       );
       continue;
     }
@@ -167,7 +173,7 @@ function renderMarkdown(markdown) {
       }
 
       blocks.push(
-        `<ol>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ol>`
+        `<ol>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ol>`,
       );
       continue;
     }
@@ -258,7 +264,10 @@ function getInputSelection() {
 
   if (
     !activeElement ||
-    !(activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement)
+    !(
+      activeElement instanceof HTMLInputElement ||
+      activeElement instanceof HTMLTextAreaElement
+    )
   ) {
     return null;
   }
@@ -280,7 +289,7 @@ function getInputSelection() {
 
   return {
     text,
-    rect: activeElement.getBoundingClientRect()
+    rect: activeElement.getBoundingClientRect(),
   };
 }
 
@@ -610,15 +619,12 @@ function ensureUI() {
 
       .slide-ask-ai-input {
         flex: 1;
-        height: 46px;
-        min-height: 46px;
-        max-height: 120px;
         resize: none;
         overflow-y: auto;
         border: 1px solid rgba(148, 163, 184, 0.28);
         border-radius: 15px;
-        padding: 8px 13px;
-        font: 500 14px/1.45 "Segoe UI", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+        padding: 11px 13px;
+        font: 500 14px/1.3 "Segoe UI", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
         color: #0f172a;
         background: rgba(255, 255, 255, 0.82);
         outline: none;
@@ -637,11 +643,10 @@ function ensureUI() {
       }
 
       .slide-ask-ai-send {
+        height: 38px;
         flex: none;
         border: 0;
         border-radius: 999px;
-        height: 46px;
-        min-height: 46px;
         padding: 0 16px;
         background: linear-gradient(135deg, #0f766e, #2563eb);
         color: #fff;
@@ -694,7 +699,7 @@ function ensureUI() {
     thread: shadow.querySelector(".slide-ask-ai-thread"),
     composer: shadow.querySelector(".slide-ask-ai-composer"),
     input: shadow.querySelector(".slide-ask-ai-input"),
-    send: shadow.querySelector(".slide-ask-ai-send")
+    send: shadow.querySelector(".slide-ask-ai-send"),
   };
 
   elements.trigger.addEventListener("click", openPanelFromSelection);
@@ -714,7 +719,6 @@ function ensureUI() {
 
 function autoResizeInput() {
   const ui = ensureUI();
-  ui.input.style.height = "46px";
 }
 
 function resetStreamState() {
@@ -796,7 +800,7 @@ function syncTriggerAppearance() {
 
   elements.trigger.classList.toggle(
     "slide-ask-ai-trigger-active",
-    triggerPointerNear || triggerAttentionVisible
+    triggerPointerNear || triggerAttentionVisible,
   );
 }
 
@@ -854,12 +858,18 @@ function renderPanel() {
 
   const visibleMessages = state.messages.filter((message) => !message.hidden);
   const hasAssistantResponse = visibleMessages.some(
-    (message) => message.role === "assistant" && !message.streaming && message.content.trim()
+    (message) =>
+      message.role === "assistant" &&
+      !message.streaming &&
+      message.content.trim(),
   );
 
   ui.composer.classList.toggle("slide-ask-ai-hidden", !hasAssistantResponse);
   ui.input.disabled =
-    state.loading || !state.selectedText || !hasAssistantResponse || !state.extensionContextValid;
+    state.loading ||
+    !state.selectedText ||
+    !hasAssistantResponse ||
+    !state.extensionContextValid;
   ui.send.disabled =
     state.loading ||
     !state.selectedText ||
@@ -937,7 +947,7 @@ async function submitQuestion() {
   state.messages.push({
     role: "assistant",
     content: "",
-    streaming: true
+    streaming: true,
   });
   streamMessageIndex = state.messages.length - 1;
   renderPanel();
@@ -966,7 +976,10 @@ async function submitQuestion() {
       }
 
       if (message?.type === "error") {
-        if (streamMessageIndex >= 0 && state.messages[streamMessageIndex]?.streaming) {
+        if (
+          streamMessageIndex >= 0 &&
+          state.messages[streamMessageIndex]?.streaming
+        ) {
           state.messages.splice(streamMessageIndex, 1);
         }
 
@@ -978,8 +991,15 @@ async function submitQuestion() {
     });
 
     streamPort.onDisconnect.addListener(() => {
-      if (state.loading && !pendingStreamCompletion && state.extensionContextValid) {
-        if (streamMessageIndex >= 0 && state.messages[streamMessageIndex]?.streaming) {
+      if (
+        state.loading &&
+        !pendingStreamCompletion &&
+        state.extensionContextValid
+      ) {
+        if (
+          streamMessageIndex >= 0 &&
+          state.messages[streamMessageIndex]?.streaming
+        ) {
           state.messages.splice(streamMessageIndex, 1);
         }
 
@@ -995,16 +1015,21 @@ async function submitQuestion() {
       selectedText: state.selectedText,
       conversationHistory: state.messages
         .filter((message) => String(message.content || "").trim())
-        .map(({ role, content }) => ({ role, content }))
+        .map(({ role, content }) => ({ role, content })),
     });
   } catch (error) {
-    if (streamMessageIndex >= 0 && state.messages[streamMessageIndex]?.streaming) {
+    if (
+      streamMessageIndex >= 0 &&
+      state.messages[streamMessageIndex]?.streaming
+    ) {
       state.messages.splice(streamMessageIndex, 1);
     }
 
     resetStreamState();
     state.loading = false;
-    updateStatus(error instanceof Error ? error.message : "请求失败，请稍后重试。");
+    updateStatus(
+      error instanceof Error ? error.message : "请求失败，请稍后重试。",
+    );
     renderPanel();
   }
 }
@@ -1018,8 +1043,8 @@ async function startConversation() {
     {
       role: "user",
       content: DEFAULT_OPENING_QUESTION,
-      hidden: true
-    }
+      hidden: true,
+    },
   ];
   await askSelectedText();
 }
@@ -1034,7 +1059,7 @@ async function submitFollowUp() {
 
   state.messages.push({
     role: "user",
-    content: followUp
+    content: followUp,
   });
   ui.input.value = "";
   autoResizeInput();
@@ -1069,11 +1094,15 @@ function scheduleSyncSelection() {
 document.addEventListener("mouseup", scheduleSyncSelection, true);
 document.addEventListener("keyup", scheduleSyncSelection, true);
 document.addEventListener("selectionchange", scheduleSyncSelection, true);
-window.addEventListener("scroll", () => {
-  if (!state.panelOpen) {
-    hideTrigger();
-  }
-}, true);
+window.addEventListener(
+  "scroll",
+  () => {
+    if (!state.panelOpen) {
+      hideTrigger();
+    }
+  },
+  true,
+);
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.panelOpen) {
@@ -1081,20 +1110,28 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-document.addEventListener("mousemove", (event) => {
-  updateTriggerProximity(event.clientX, event.clientY);
-}, true);
+document.addEventListener(
+  "mousemove",
+  (event) => {
+    updateTriggerProximity(event.clientX, event.clientY);
+  },
+  true,
+);
 
-document.addEventListener("mousedown", (event) => {
-  if (!state.panelOpen || !elements) {
-    return;
-  }
+document.addEventListener(
+  "mousedown",
+  (event) => {
+    if (!state.panelOpen || !elements) {
+      return;
+    }
 
-  const path = event.composedPath();
+    const path = event.composedPath();
 
-  if (!path.includes(elements.host)) {
-    closePanel();
-  }
-}, true);
+    if (!path.includes(elements.host)) {
+      closePanel();
+    }
+  },
+  true,
+);
 
 ensureUI();
