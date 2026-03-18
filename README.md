@@ -52,7 +52,7 @@
 - 默认 Base URL 为 `https://api.deepseek.com/v1`
 - 默认模型为 `deepseek-chat`
 - 默认接口模式为 `Chat Completions API`
-- 如果模型名以 `doubao-seed` 开头，会额外发送可配置的 `reasoning_effort`
+- 额外发送可配置的 `reasoning_effort`
 - 如果你使用兼容该请求格式的服务，也可以改成自己的地址
 
 ## 简单校验
