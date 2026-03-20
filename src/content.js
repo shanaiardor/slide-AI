@@ -295,6 +295,50 @@ function getInputSelection() {
   };
 }
 
+function hasVisibleRect(rect) {
+  return Boolean(rect) && (rect.width !== 0 || rect.height !== 0);
+}
+
+function getSelectionFocusRect(selection) {
+  if (!selection.focusNode) {
+    return null;
+  }
+
+  try {
+    const focusRange = document.createRange();
+    focusRange.setStart(selection.focusNode, selection.focusOffset);
+    focusRange.setEnd(selection.focusNode, selection.focusOffset);
+
+    const rect = focusRange.getBoundingClientRect();
+    return hasVisibleRect(rect) ? rect : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function getTrailingSelectionRect(range) {
+  const clientRects = Array.from(range.getClientRects()).filter(hasVisibleRect);
+
+  if (clientRects.length === 0) {
+    return null;
+  }
+
+  return clientRects.reduce((current, rect) => {
+    if (!current) {
+      return rect;
+    }
+
+    const isLaterLine = rect.bottom > current.bottom + 1;
+    const isSameLine = Math.abs(rect.bottom - current.bottom) <= 1;
+
+    if (isLaterLine || (isSameLine && rect.right > current.right)) {
+      return rect;
+    }
+
+    return current;
+  }, null);
+}
+
 function getPageSelection() {
   const inputSelection = getInputSelection();
 
@@ -314,9 +358,13 @@ function getPageSelection() {
     return null;
   }
 
-  const rect = selection.getRangeAt(0).getBoundingClientRect();
+  const range = selection.getRangeAt(0);
+  const rect =
+    getSelectionFocusRect(selection) ||
+    getTrailingSelectionRect(range) ||
+    range.getBoundingClientRect();
 
-  if (!rect || (rect.width === 0 && rect.height === 0)) {
+  if (!hasVisibleRect(rect)) {
     return null;
   }
 

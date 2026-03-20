@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "滑词问 AI",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "在任意网页中滑词后直接向 AI 提问，并支持继续追问。",
   "permissions": ["activeTab", "storage"],
   "host_permissions": ["<all_urls>"],
