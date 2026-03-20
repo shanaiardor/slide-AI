@@ -87,6 +87,23 @@ function extractChatCompletionsDelta(data) {
   return "";
 }
 
+function extractChatCompletionsReasoningDelta(data) {
+  const reasoningContent = data?.choices?.[0]?.delta?.reasoning_content;
+
+  if (typeof reasoningContent === "string") {
+    return reasoningContent;
+  }
+
+  if (Array.isArray(reasoningContent)) {
+    return reasoningContent
+      .map((item) => item?.text || "")
+      .filter(Boolean)
+      .join("");
+  }
+
+  return "";
+}
+
 function createHttpError(response, data, endpoint) {
   const messageText =
     data?.error?.message ||
@@ -182,6 +199,41 @@ function safePortPostMessage(port, payload) {
   }
 }
 
+function normalizeSseLineEndings(text) {
+  return String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function splitSseEvents(buffer) {
+  const normalizedBuffer = normalizeSseLineEndings(buffer);
+  const events = [];
+  let remaining = normalizedBuffer;
+
+  while (remaining.includes("\n\n")) {
+    const splitIndex = remaining.indexOf("\n\n");
+    events.push(remaining.slice(0, splitIndex));
+    remaining = remaining.slice(splitIndex + 2);
+  }
+
+  return {
+    events,
+    remaining
+  };
+}
+
+function extractSseEventData(rawEvent) {
+  const dataLines = rawEvent
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim())
+    .filter(Boolean);
+
+  if (dataLines.length === 0) {
+    return "";
+  }
+
+  return dataLines.join("\n");
+}
+
 async function streamChatCompletions(endpoint, settings, apiKey, messages, port) {
   const model = (settings.model || DEFAULT_SETTINGS.model).trim();
   const collectDebugData = shouldCollectDebugData(settings);
@@ -246,6 +298,11 @@ async function streamChatCompletions(endpoint, settings, apiKey, messages, port)
   let answer = "";
   let usage = null;
   let firstTokenLatencyMs = null;
+  let firstTransportChunkLatencyMs = null;
+  let firstReasoningChunkLatencyMs = null;
+  let firstContentChunkLatencyMs = null;
+  let reasoningChunkCount = 0;
+  let contentChunkCount = 0;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -254,24 +311,30 @@ async function streamChatCompletions(endpoint, settings, apiKey, messages, port)
       break;
     }
 
+    if (
+      collectDebugData &&
+      firstTransportChunkLatencyMs === null &&
+      value &&
+      value.length > 0
+    ) {
+      firstTransportChunkLatencyMs = Math.round(performance.now() - startedAtPerf);
+      await appendDebugLog("info", "stream_first_transport_chunk", {
+        endpoint,
+        latencyMs: firstTransportChunkLatencyMs,
+        bytes: value.length
+      });
+    }
+
     buffer += decoder.decode(value, { stream: true });
+    const parsed = splitSseEvents(buffer);
+    buffer = parsed.remaining;
 
-    while (buffer.includes("\n\n")) {
-      const splitIndex = buffer.indexOf("\n\n");
-      const rawEvent = buffer.slice(0, splitIndex);
-      buffer = buffer.slice(splitIndex + 2);
+    for (const rawEvent of parsed.events) {
+      const dataText = extractSseEventData(rawEvent);
 
-      const dataLines = rawEvent
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trim())
-        .filter(Boolean);
-
-      if (dataLines.length === 0) {
+      if (!dataText) {
         continue;
       }
-
-      const dataText = dataLines.join("\n");
 
       if (dataText === "[DONE]") {
         continue;
@@ -289,14 +352,51 @@ async function streamChatCompletions(endpoint, settings, apiKey, messages, port)
         usage = chunk.usage;
       }
 
+      const reasoningDeltaText = extractChatCompletionsReasoningDelta(chunk);
       const deltaText = extractChatCompletionsDelta(chunk);
+
+      if (reasoningDeltaText) {
+        reasoningChunkCount += 1;
+
+        if (collectDebugData && firstReasoningChunkLatencyMs === null) {
+          firstReasoningChunkLatencyMs = Math.round(performance.now() - startedAtPerf);
+          await appendDebugLog("info", "stream_first_reasoning_chunk", {
+            endpoint,
+            latencyMs: firstReasoningChunkLatencyMs,
+            preview: previewText(reasoningDeltaText, 40)
+          });
+        }
+
+        if (
+          !safePortPostMessage(port, {
+            type: "reasoning",
+            delta: reasoningDeltaText
+          })
+        ) {
+          return {
+            answer,
+            endpointMode: "chat/completions"
+          };
+        }
+      }
 
       if (!deltaText) {
         continue;
       }
 
+      contentChunkCount += 1;
+
       if (collectDebugData && firstTokenLatencyMs === null) {
         firstTokenLatencyMs = Math.round(performance.now() - startedAtPerf);
+      }
+
+      if (collectDebugData && firstContentChunkLatencyMs === null) {
+        firstContentChunkLatencyMs = Math.round(performance.now() - startedAtPerf);
+        await appendDebugLog("info", "stream_first_content_chunk", {
+          endpoint,
+          latencyMs: firstContentChunkLatencyMs,
+          preview: previewText(deltaText, 40)
+        });
       }
 
       answer += deltaText;
@@ -315,6 +415,71 @@ async function streamChatCompletions(endpoint, settings, apiKey, messages, port)
     }
   }
 
+  if (buffer.trim()) {
+    const dataText = extractSseEventData(buffer);
+
+    if (dataText && dataText !== "[DONE]") {
+      try {
+        const chunk = JSON.parse(dataText);
+
+        if (collectDebugData && chunk?.usage) {
+          usage = chunk.usage;
+        }
+
+        const deltaText = extractChatCompletionsDelta(chunk);
+        const reasoningDeltaText = extractChatCompletionsReasoningDelta(chunk);
+
+        if (reasoningDeltaText) {
+          reasoningChunkCount += 1;
+
+          if (collectDebugData && firstReasoningChunkLatencyMs === null) {
+            firstReasoningChunkLatencyMs = Math.round(performance.now() - startedAtPerf);
+            await appendDebugLog("info", "stream_first_reasoning_chunk", {
+              endpoint,
+              latencyMs: firstReasoningChunkLatencyMs,
+              preview: previewText(reasoningDeltaText, 40)
+            });
+          }
+
+          if (
+            !safePortPostMessage(port, {
+              type: "reasoning",
+              delta: reasoningDeltaText
+            })
+          ) {
+            return {
+              answer,
+              endpointMode: "chat/completions"
+            };
+          }
+        }
+
+        if (deltaText) {
+          contentChunkCount += 1;
+
+          if (collectDebugData && firstTokenLatencyMs === null) {
+            firstTokenLatencyMs = Math.round(performance.now() - startedAtPerf);
+          }
+
+          if (collectDebugData && firstContentChunkLatencyMs === null) {
+            firstContentChunkLatencyMs = Math.round(performance.now() - startedAtPerf);
+            await appendDebugLog("info", "stream_first_content_chunk", {
+              endpoint,
+              latencyMs: firstContentChunkLatencyMs,
+              preview: previewText(deltaText, 40)
+            });
+          }
+
+          answer += deltaText;
+          safePortPostMessage(port, {
+            type: "chunk",
+            delta: deltaText
+          });
+        }
+      } catch {}
+    }
+  }
+
   answer = answer.trim();
 
   if (!answer) {
@@ -323,6 +488,17 @@ async function streamChatCompletions(endpoint, settings, apiKey, messages, port)
 
   if (collectDebugData) {
     const totalLatencyMs = Math.round(performance.now() - startedAtPerf);
+
+    await appendDebugLog("info", "stream_chunk_summary", {
+      endpoint,
+      totalLatencyMs,
+      firstTransportChunkLatencyMs,
+      firstReasoningChunkLatencyMs,
+      firstContentChunkLatencyMs,
+      reasoningChunkCount,
+      contentChunkCount,
+      answerPreview: previewText(answer, 80)
+    });
 
     await saveLastRequestMetrics(
       buildPerformanceMetrics({

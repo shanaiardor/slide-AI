@@ -199,6 +199,80 @@ function ensureUI() {
         margin-bottom: 0;
       }
 
+      .slide-ask-ai-reasoning-shell {
+        position: relative;
+        margin: -2px 0 12px;
+        padding: 10px 12px 11px;
+        border-radius: 14px;
+        background:
+          linear-gradient(180deg, rgba(226, 232, 240, 0.42), rgba(248, 250, 252, 0.78));
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        overflow: hidden;
+      }
+
+      .slide-ask-ai-reasoning-shell::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 2px;
+        background: linear-gradient(180deg, rgba(14, 165, 233, 0.78), rgba(15, 118, 110, 0.52));
+      }
+
+      .slide-ask-ai-reasoning-shell-live::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 40%, rgba(14, 165, 233, 0.08));
+        pointer-events: none;
+      }
+
+      .slide-ask-ai-reasoning-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .slide-ask-ai-reasoning-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: #0ea5e9;
+        box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12);
+      }
+
+      .slide-ask-ai-reasoning-shell-live .slide-ask-ai-reasoning-dot {
+        animation: slide-ask-ai-reasoning-pulse 1.3s infinite ease-in-out;
+      }
+
+      .slide-ask-ai-reasoning-label {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        color: #0369a1;
+        text-transform: uppercase;
+      }
+
+      .slide-ask-ai-reasoning-window {
+        max-height: 74px;
+        overflow: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        mask-image: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.88) 14%, rgba(0, 0, 0, 1) 82%, transparent 100%);
+      }
+
+      .slide-ask-ai-reasoning-window::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+      }
+
+      .slide-ask-ai-reasoning-track {
+        font: 500 11px/1.45 "SFMono-Regular", "Cascadia Code", "JetBrains Mono", "Fira Code", monospace;
+        color: rgba(15, 23, 42, 0.72);
+        white-space: normal;
+        word-break: break-word;
+      }
+
       .slide-ask-ai-message-body p,
       .slide-ask-ai-message-body ul,
       .slide-ask-ai-message-body ol,
@@ -322,6 +396,18 @@ function ensureUI() {
         }
       }
 
+      @keyframes slide-ask-ai-reasoning-pulse {
+        0%, 100% {
+          transform: scale(1);
+          opacity: 0.72;
+        }
+
+        50% {
+          transform: scale(1.14);
+          opacity: 1;
+        }
+      }
+
       .slide-ask-ai-composer {
         display: flex;
         align-items: center;
@@ -439,8 +525,8 @@ function autoResizeInput() {
 }
 
 function resetStreamState() {
-  if (streamTimer) {
-    window.clearTimeout(streamTimer);
+  if (streamRenderFrame) {
+    window.cancelAnimationFrame(streamRenderFrame);
   }
 
   if (streamPort) {
@@ -450,7 +536,8 @@ function resetStreamState() {
   }
 
   streamQueue = "";
-  streamTimer = 0;
+  streamReasoningQueue = "";
+  streamRenderFrame = 0;
   streamMessageIndex = -1;
   streamPort = null;
   pendingStreamCompletion = null;
@@ -459,6 +546,7 @@ function resetStreamState() {
 function finalizeStream() {
   if (streamMessageIndex >= 0 && state.messages[streamMessageIndex]) {
     state.messages[streamMessageIndex].streaming = false;
+    state.messages[streamMessageIndex].reasoningStreaming = false;
   }
 
   state.loading = false;
@@ -467,15 +555,43 @@ function finalizeStream() {
   resetStreamState();
 }
 
+function syncStreamingMessageView() {
+  const ui = ensureUI();
+  const message = state.messages[streamMessageIndex];
+
+  if (!message || streamMessageIndex < 0) {
+    resetStreamState();
+    return;
+  }
+
+  const body = ui.thread.querySelector(
+    `.slide-ask-ai-message[data-message-index="${streamMessageIndex}"] .slide-ask-ai-message-body`,
+  );
+
+  if (!body) {
+    renderPanel();
+    return;
+  }
+
+  body.innerHTML = renderAssistantMessageBody(message);
+  const reasoningWindow = body.querySelector(".slide-ask-ai-reasoning-window");
+
+  if (reasoningWindow) {
+    reasoningWindow.scrollTop = reasoningWindow.scrollHeight;
+  }
+
+  ui.thread.scrollTop = ui.thread.scrollHeight;
+}
+
 function flushStreamQueue() {
   if (streamMessageIndex < 0 || !state.messages[streamMessageIndex]) {
     resetStreamState();
     return;
   }
 
-  if (!streamQueue) {
-    streamTimer = 0;
+  streamRenderFrame = 0;
 
+  if (!streamQueue && !streamReasoningQueue) {
     if (pendingStreamCompletion) {
       finalizeStream();
     }
@@ -483,18 +599,39 @@ function flushStreamQueue() {
     return;
   }
 
-  state.messages[streamMessageIndex].content += streamQueue[0];
-  streamQueue = streamQueue.slice(1);
-  renderPanel();
-  streamTimer = window.setTimeout(flushStreamQueue, 14);
+  state.messages[streamMessageIndex].reasoning += streamReasoningQueue;
+  state.messages[streamMessageIndex].content += streamQueue;
+  streamReasoningQueue = "";
+  streamQueue = "";
+  syncStreamingMessageView();
+
+  if (pendingStreamCompletion && !streamQueue && !streamReasoningQueue) {
+    finalizeStream();
+  }
+}
+
+function scheduleStreamFlush() {
+  if (!streamRenderFrame) {
+    streamRenderFrame = window.requestAnimationFrame(flushStreamQueue);
+  }
 }
 
 function enqueueStreamDelta(delta) {
-  streamQueue += delta;
-
-  if (!streamTimer) {
-    flushStreamQueue();
+  if (!delta) {
+    return;
   }
+
+  streamQueue += delta;
+  scheduleStreamFlush();
+}
+
+function enqueueStreamReasoningDelta(delta) {
+  if (!delta) {
+    return;
+  }
+
+  streamReasoningQueue += delta;
+  scheduleStreamFlush();
 }
 
 function hideTrigger() {
@@ -693,7 +830,11 @@ function renderPanel() {
   }
 
   if (visibleMessages.length > 0) {
-    ui.thread.innerHTML = visibleMessages.map(renderChatMessage).join("");
+    ui.thread.innerHTML = state.messages
+      .map((message, index) =>
+        message.hidden ? "" : renderChatMessage(message, index),
+      )
+      .join("");
     ui.thread.classList.remove("slide-ask-ai-hidden");
   } else {
     ui.thread.innerHTML = "";

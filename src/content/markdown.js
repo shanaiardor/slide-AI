@@ -24,6 +24,44 @@ function renderInlineMarkdown(text) {
   return html;
 }
 
+function renderReasoningRail(text, streaming = false) {
+  const reasoning = String(text || "").trim();
+
+  if (!reasoning) {
+    return "";
+  }
+
+  return `
+    <section class="slide-ask-ai-reasoning-shell ${streaming ? "slide-ask-ai-reasoning-shell-live" : ""}" aria-label="${streaming ? "AI 思考过程" : "AI 思考记录"}">
+      <div class="slide-ask-ai-reasoning-head">
+        <span class="slide-ask-ai-reasoning-dot"></span>
+        <span class="slide-ask-ai-reasoning-label">${streaming ? "思考中" : "思考记录"}</span>
+      </div>
+      <div class="slide-ask-ai-reasoning-window">
+        <div class="slide-ask-ai-reasoning-track">${escapeHtml(reasoning).replace(/\n/g, "<br>")}</div>
+      </div>
+    </section>
+  `;
+}
+
+function renderStreamingAssistantBody(text, hasReasoning = false) {
+  const content = String(text || "");
+
+  if (!content && !hasReasoning) {
+    return `
+      <div class="slide-ask-ai-typing" aria-label="AI 正在生成">
+        <span></span><span></span><span></span>
+      </div>
+    `;
+  }
+
+  if (!content) {
+    return "";
+  }
+
+  return `<p>${escapeHtml(content).replace(/\n/g, "<br>")}</p>`;
+}
+
 function renderMarkdown(markdown) {
   const lines = String(markdown || "")
     .replace(/\r\n/g, "\n")
@@ -133,21 +171,32 @@ function renderMarkdown(markdown) {
   return blocks.join("");
 }
 
-function renderChatMessage(message) {
+function renderAssistantMessageBody(message) {
+  const reasoningRail = renderReasoningRail(
+    message.reasoning,
+    Boolean(message.reasoningStreaming),
+  );
+
+  if (message.streaming) {
+    return `${reasoningRail}${renderStreamingAssistantBody(message.content, Boolean(message.reasoning))}`;
+  }
+
+  return `${reasoningRail}${renderMarkdown(message.content)}`;
+}
+
+function renderChatMessage(message, messageIndex = null) {
   const role = message.role === "user" ? "user" : "assistant";
+  const messageIndexAttr =
+    typeof messageIndex === "number"
+      ? ` data-message-index="${messageIndex}"`
+      : "";
   const body =
     role === "assistant"
-      ? message.streaming && !message.content
-        ? `
-          <div class="slide-ask-ai-typing" aria-label="AI 正在生成">
-            <span></span><span></span><span></span>
-          </div>
-        `
-        : renderMarkdown(message.content)
+      ? renderAssistantMessageBody(message)
       : `<p>${renderInlineMarkdown(message.content)}</p>`;
 
   return `
-    <article class="slide-ask-ai-message slide-ask-ai-message-${role} ${message.streaming ? "slide-ask-ai-message-streaming" : ""}">
+    <article class="slide-ask-ai-message slide-ask-ai-message-${role} ${message.streaming ? "slide-ask-ai-message-streaming" : ""}"${messageIndexAttr}>
       <div class="slide-ask-ai-message-body">${body}</div>
     </article>
   `;

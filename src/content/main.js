@@ -40,7 +40,9 @@ async function submitQuestion() {
   state.messages.push({
     role: "assistant",
     content: "",
+    reasoning: "",
     streaming: true,
+    reasoningStreaming: true,
   });
   streamMessageIndex = state.messages.length - 1;
   renderPanel();
@@ -53,6 +55,11 @@ async function submitQuestion() {
     }
 
     streamPort.onMessage.addListener((message) => {
+      if (message?.type === "reasoning") {
+        enqueueStreamReasoningDelta(message.delta || "");
+        return;
+      }
+
       if (message?.type === "chunk") {
         enqueueStreamDelta(message.delta || "");
         return;
@@ -61,7 +68,7 @@ async function submitQuestion() {
       if (message?.type === "done") {
         pendingStreamCompletion = message;
 
-        if (!streamQueue && !streamTimer) {
+        if (!streamQueue && !streamReasoningQueue && !streamRenderFrame) {
           finalizeStream();
         }
 
