@@ -27,14 +27,15 @@ function resolvePageContext(message, sender) {
   };
 }
 
-function applySystemPromptVariables(systemPrompt, pageContext) {
+function applySystemPromptVariables(systemPrompt, pageContext, selectedText = "") {
   const variableValues = {
     title: pageContext.title,
     url: pageContext.url,
     origin: pageContext.origin,
     domain: pageContext.domain,
     pathname: pageContext.pathname,
-    language: pageContext.language
+    language: pageContext.language,
+    selected_text: selectedText
   };
 
   return String(systemPrompt || "").replace(/\{([a-z_]+)\}/g, (match, key) =>

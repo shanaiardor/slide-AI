@@ -18,7 +18,8 @@ const SYSTEM_PROMPT_VARIABLES = Object.freeze([
   "origin",
   "domain",
   "pathname",
-  "language"
+  "language",
+  "selected_text"
 ]);
 
 async function ensureDefaults() {

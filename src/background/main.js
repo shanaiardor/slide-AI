@@ -26,7 +26,8 @@ async function askAI(message, sender) {
   const pageContext = resolvePageContext(message, sender);
   const systemPrompt = applySystemPromptVariables(
     (settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt).trim(),
-    pageContext
+    pageContext,
+    selectedText
   );
   const promptText = buildPromptText(selectedText, conversationHistory);
   const chatMessages = buildChatMessages(systemPrompt, selectedText, conversationHistory);
@@ -148,7 +149,8 @@ async function streamAskAI(message, port) {
   const pageContext = resolvePageContext(message, port?.sender);
   const systemPrompt = applySystemPromptVariables(
     (settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt).trim(),
-    pageContext
+    pageContext,
+    selectedText
   );
   const promptText = buildPromptText(selectedText, conversationHistory);
   const chatMessages = buildChatMessages(systemPrompt, selectedText, conversationHistory);

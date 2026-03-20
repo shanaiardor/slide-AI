@@ -6,12 +6,24 @@ const DEFAULT_SETTINGS = {
   reasoningEffort: "medium",
   debugEnabled: false,
   systemPrompt:
-    "你是一个网页阅读助手。请基于用户选中的内容回答，优先使用简洁清晰的中文。"
+    "你是一个网页阅读助手。请基于用户选中的内容回答，优先使用简洁清晰的中文。",
 };
+const SYSTEM_PROMPT_TOKENS = [
+  { token: "{title}", label: "页面标题" },
+  { token: "{url}", label: "页面完整地址" },
+  { token: "{origin}", label: "页面来源" },
+  { token: "{domain}", label: "页面域名" },
+  { token: "{pathname}", label: "页面路径" },
+  { token: "{language}", label: "页面语言" },
+  { token: "{selected_text}", label: "当前选中文本" },
+];
 
 const saveStatus = document.getElementById("save-status");
 const settingsForm = document.getElementById("settings-form");
-const keywordChips = Array.from(document.querySelectorAll(".keyword-chip[data-token]"));
+const keywordChips = Array.from(
+  document.querySelectorAll(".keyword-chip[data-token]"),
+);
+const promptSuggestions = document.getElementById("prompt-suggestions");
 const metricsPanel = document.getElementById("metrics-panel");
 const debugPanel = document.getElementById("debug-panel");
 const apiConfigToggle = document.getElementById("api-config-toggle");
@@ -36,11 +48,151 @@ const metricsMeta = document.getElementById("metrics-meta");
 const metricFirstToken = document.getElementById("metric-first-token");
 const metricTokenSpeed = document.getElementById("metric-token-speed");
 const metricTotalLatency = document.getElementById("metric-total-latency");
-const metricCompletionTokens = document.getElementById("metric-completion-tokens");
+const metricCompletionTokens = document.getElementById(
+  "metric-completion-tokens",
+);
 let apiConfigCollapsed = false;
+let lastPromptSelection = { start: 0, end: 0 };
+let promptSuggestionIndex = 0;
+let promptInputComposing = false;
 
 function isDoubaoSeedModel(model = "") {
   return /^doubao-seed/i.test(model.trim());
+}
+
+function getPromptSelection() {
+  if (document.activeElement !== systemPromptInput) {
+    return lastPromptSelection;
+  }
+
+  const start = systemPromptInput.selectionStart ?? lastPromptSelection.start;
+  const end = systemPromptInput.selectionEnd ?? start;
+
+  return {
+    start: Math.min(start, end),
+    end: Math.max(start, end),
+  };
+}
+
+function setPromptSelection(start, end = start, focusInput = false) {
+  if (focusInput) {
+    systemPromptInput.focus();
+  }
+
+  systemPromptInput.setSelectionRange(start, end);
+  lastPromptSelection = { start, end };
+}
+
+function renderPromptSuggestions() {
+  const selection = getPromptSelection();
+
+  if (selection.start !== selection.end) {
+    promptSuggestions.hidden = true;
+    promptSuggestions.replaceChildren();
+    return null;
+  }
+
+  const prefix = systemPromptInput.value.slice(0, selection.start);
+  const openIndex = prefix.lastIndexOf("{");
+
+  if (openIndex === -1) {
+    promptSuggestions.hidden = true;
+    promptSuggestions.replaceChildren();
+    return null;
+  }
+
+  const queryText = prefix.slice(openIndex + 1);
+
+  if (!/^[a-z]*$/i.test(queryText)) {
+    promptSuggestions.hidden = true;
+    promptSuggestions.replaceChildren();
+    return null;
+  }
+
+  const beforeOpen = prefix.slice(0, openIndex);
+
+  if (beforeOpen.endsWith("}")) {
+    promptSuggestions.hidden = true;
+    promptSuggestions.replaceChildren();
+    return null;
+  }
+
+  const matches = SYSTEM_PROMPT_TOKENS.filter(({ token }) =>
+    token.slice(1, -1).toLowerCase().startsWith(queryText.toLowerCase()),
+  );
+
+  if (matches.length === 0) {
+    promptSuggestions.hidden = true;
+    promptSuggestions.replaceChildren();
+    return null;
+  }
+
+  promptSuggestionIndex = Math.max(
+    0,
+    Math.min(promptSuggestionIndex, matches.length - 1),
+  );
+  promptSuggestions.replaceChildren();
+
+  matches.forEach((match, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "prompt-suggestion";
+    button.dataset.token = match.token;
+    button.classList.toggle(
+      "prompt-suggestion-active",
+      index === promptSuggestionIndex,
+    );
+
+    const title = document.createElement("span");
+    title.className = "prompt-suggestion-label";
+    title.textContent = match.label;
+
+    const code = document.createElement("code");
+    code.textContent = match.token;
+    button.append(title, code);
+    button.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+    });
+    button.addEventListener("click", () => {
+      replaceSystemPromptRange(openIndex, selection.end, match.token);
+    });
+    promptSuggestions.append(button);
+  });
+
+  promptSuggestions.hidden = false;
+  return { matches, start: openIndex, end: selection.end };
+}
+
+function replaceSystemPromptRange(start, end, replacement) {
+  const value = systemPromptInput.value;
+  systemPromptInput.value = `${value.slice(0, start)}${replacement}${value.slice(end)}`;
+  const nextOffset = start + replacement.length;
+  setPromptSelection(nextOffset, nextOffset, true);
+  renderPromptSuggestions();
+}
+
+function findPromptTokenRangeBeforeOffset(offset) {
+  for (const { token } of SYSTEM_PROMPT_TOKENS) {
+    const start = offset - token.length;
+
+    if (start >= 0 && systemPromptInput.value.slice(start, offset) === token) {
+      return { start, end: offset };
+    }
+  }
+
+  return null;
+}
+
+function findPromptTokenRangeAfterOffset(offset) {
+  for (const { token } of SYSTEM_PROMPT_TOKENS) {
+    const end = offset + token.length;
+
+    if (systemPromptInput.value.slice(offset, end) === token) {
+      return { start: offset, end };
+    }
+  }
+
+  return null;
 }
 
 function hasSavedApiKey() {
@@ -52,11 +204,14 @@ function renderApiConfigCard() {
 
   apiConfigToggle.setAttribute("aria-expanded", String(!apiConfigCollapsed));
   apiConfigFields.hidden = apiConfigCollapsed;
-  apiConfigToggle.classList.toggle("api-config-toggle-collapsed", apiConfigCollapsed);
+  apiConfigToggle.classList.toggle(
+    "api-config-toggle-collapsed",
+    apiConfigCollapsed,
+  );
   apiConfigBadge.textContent = configured ? "已配置" : "未配置";
   apiConfigBadge.classList.toggle("api-config-badge-ready", configured);
   apiConfigSummary.textContent = configured
-    ? "API Key 已保存，通常不需要频繁改动。"
+    ? "API Key 已保存"
     : "首次使用时需要填写 API Key。";
 }
 
@@ -66,7 +221,8 @@ function setApiConfigCollapsed(nextValue) {
 }
 
 function insertSystemPromptToken(token) {
-  const start = systemPromptInput.selectionStart ?? systemPromptInput.value.length;
+  const start =
+    systemPromptInput.selectionStart ?? systemPromptInput.value.length;
   const end = systemPromptInput.selectionEnd ?? systemPromptInput.value.length;
 
   systemPromptInput.focus();
@@ -93,11 +249,18 @@ async function loadSettings() {
   apiKeyInput.value = settings.apiKey || "";
   apiBaseUrlInput.value = settings.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl;
   modelInput.value = settings.model || DEFAULT_SETTINGS.model;
-  reasoningEffortInput.value = settings.reasoningEffort || DEFAULT_SETTINGS.reasoningEffort;
+  reasoningEffortInput.value =
+    settings.reasoningEffort || DEFAULT_SETTINGS.reasoningEffort;
   apiModeInput.value = settings.apiMode || DEFAULT_SETTINGS.apiMode;
   debugEnabledInput.checked = Boolean(settings.debugEnabled);
-  systemPromptInput.value = settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt;
+  systemPromptInput.value =
+    settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt;
+  lastPromptSelection = {
+    start: systemPromptInput.value.length,
+    end: systemPromptInput.value.length,
+  };
   apiConfigCollapsed = Boolean(settings.apiKey);
+  promptSuggestions.hidden = true;
   renderApiConfigCard();
   syncDebugPanelsVisibility();
   syncReasoningEffortAvailability();
@@ -114,7 +277,9 @@ function formatDebugLogs(logs) {
       const timestamp = log?.time || "-";
       const level = (log?.level || "info").toUpperCase();
       const event = log?.event || "unknown";
-      const details = log?.details ? JSON.stringify(log.details, null, 2) : "{}";
+      const details = log?.details
+        ? JSON.stringify(log.details, null, 2)
+        : "{}";
       return `[${timestamp}] ${level} ${event}\n${details}`;
     })
     .join("\n\n");
@@ -136,7 +301,9 @@ function renderMetrics(metrics) {
   metricTokenSpeed.textContent = formatTokenSpeed(metrics?.tokenSpeed);
   metricTotalLatency.textContent = formatDuration(metrics?.totalLatencyMs);
   metricCompletionTokens.textContent =
-    typeof metrics?.completionTokens === "number" ? String(metrics.completionTokens) : "-";
+    typeof metrics?.completionTokens === "number"
+      ? String(metrics.completionTokens)
+      : "-";
 
   if (!metrics) {
     metricsStatus.textContent = "这里会显示最近一次 AI 请求的性能指标。";
@@ -151,12 +318,14 @@ function renderMetrics(metrics) {
     `模型：${metrics.model || "-"}`,
     `接口：${metrics.endpointMode || "-"}`,
     `状态：${metrics.status || "-"}`,
-    `时间：${metrics.startedAt || "-"}`
+    `时间：${metrics.startedAt || "-"}`,
   ].join(" | ");
 }
 
 async function refreshMetrics() {
-  const response = await chrome.runtime.sendMessage({ type: "GET_LAST_REQUEST_METRICS" });
+  const response = await chrome.runtime.sendMessage({
+    type: "GET_LAST_REQUEST_METRICS",
+  });
 
   if (!response?.ok) {
     metricFirstToken.textContent = "-";
@@ -209,15 +378,20 @@ settingsForm.addEventListener("submit", async (event) => {
       apiKey: apiKeyInput.value.trim(),
       apiBaseUrl: apiBaseUrlInput.value.trim() || DEFAULT_SETTINGS.apiBaseUrl,
       model: modelInput.value.trim() || DEFAULT_SETTINGS.model,
-      reasoningEffort: reasoningEffortInput.value || DEFAULT_SETTINGS.reasoningEffort,
+      reasoningEffort:
+        reasoningEffortInput.value || DEFAULT_SETTINGS.reasoningEffort,
       apiMode: apiModeInput.value || DEFAULT_SETTINGS.apiMode,
       debugEnabled: debugEnabledInput.checked,
-      systemPrompt: systemPromptInput.value.trim() || DEFAULT_SETTINGS.systemPrompt
+      systemPrompt:
+        systemPromptInput.value.trim() || DEFAULT_SETTINGS.systemPrompt,
     });
 
     setApiConfigCollapsed(hasSavedApiKey());
     saveStatus.textContent = "配置已保存。现在可以刷新网页并重新测试请求。";
-    await refreshDebugLogs();
+
+    if (debugEnabledInput.checked) {
+      await refreshDebugLogs();
+    }
   } catch (error) {
     console.error(error);
     saveStatus.textContent = "保存失败，请稍后重试。";
@@ -227,6 +401,116 @@ settingsForm.addEventListener("submit", async (event) => {
 });
 
 modelInput.addEventListener("input", syncReasoningEffortAvailability);
+systemPromptInput.addEventListener("focus", () => {
+  setPromptSelection(lastPromptSelection.start, lastPromptSelection.end);
+  renderPromptSuggestions();
+});
+systemPromptInput.addEventListener("mouseup", () => {
+  lastPromptSelection = getPromptSelection();
+  renderPromptSuggestions();
+});
+systemPromptInput.addEventListener("keyup", () => {
+  lastPromptSelection = getPromptSelection();
+  renderPromptSuggestions();
+});
+systemPromptInput.addEventListener("blur", () => {
+  promptInputComposing = false;
+  window.setTimeout(() => {
+    if (
+      document.activeElement !== systemPromptInput &&
+      !promptSuggestions.contains(document.activeElement)
+    ) {
+      promptSuggestions.hidden = true;
+    }
+  }, 0);
+});
+systemPromptInput.addEventListener("compositionstart", () => {
+  promptInputComposing = true;
+});
+systemPromptInput.addEventListener("compositionend", () => {
+  promptInputComposing = false;
+  lastPromptSelection = getPromptSelection();
+  window.setTimeout(() => {
+    renderPromptSuggestions();
+  }, 0);
+});
+systemPromptInput.addEventListener("keydown", (event) => {
+  const selection = getPromptSelection();
+  lastPromptSelection = selection;
+  const suggestionContext = !promptSuggestions.hidden
+    ? renderPromptSuggestions()
+    : null;
+  const isComposing =
+    promptInputComposing || event.isComposing || event.keyCode === 229;
+
+  if (!isComposing && event.key === "ArrowDown" && suggestionContext) {
+    event.preventDefault();
+    promptSuggestionIndex =
+      (promptSuggestionIndex + 1) % suggestionContext.matches.length;
+    renderPromptSuggestions();
+    return;
+  }
+
+  if (!isComposing && event.key === "ArrowUp" && suggestionContext) {
+    event.preventDefault();
+    promptSuggestionIndex =
+      (promptSuggestionIndex - 1 + suggestionContext.matches.length) %
+      suggestionContext.matches.length;
+    renderPromptSuggestions();
+    return;
+  }
+
+  if (
+    !isComposing &&
+    (event.key === "Enter" || event.key === "Tab") &&
+    suggestionContext
+  ) {
+    event.preventDefault();
+    replaceSystemPromptRange(
+      suggestionContext.start,
+      suggestionContext.end,
+      suggestionContext.matches[promptSuggestionIndex].token,
+    );
+    return;
+  }
+
+  if (!isComposing && event.key === "Escape" && !promptSuggestions.hidden) {
+    event.preventDefault();
+    promptSuggestions.hidden = true;
+    return;
+  }
+
+  if (
+    !isComposing &&
+    event.key === "Backspace" &&
+    selection.start === selection.end
+  ) {
+    const tokenRange = findPromptTokenRangeBeforeOffset(selection.start);
+
+    if (tokenRange) {
+      event.preventDefault();
+      replaceSystemPromptRange(tokenRange.start, tokenRange.end, "");
+    }
+    return;
+  }
+
+  if (
+    !isComposing &&
+    event.key === "Delete" &&
+    selection.start === selection.end
+  ) {
+    const tokenRange = findPromptTokenRangeAfterOffset(selection.start);
+
+    if (tokenRange) {
+      event.preventDefault();
+      replaceSystemPromptRange(tokenRange.start, tokenRange.end, "");
+    }
+  }
+});
+systemPromptInput.addEventListener("input", () => {
+  lastPromptSelection = getPromptSelection();
+  renderPromptSuggestions();
+});
 debugEnabledInput.addEventListener("change", () => {
   syncDebugPanelsVisibility();
 
@@ -247,6 +531,8 @@ apiConfigToggle.addEventListener("click", () => {
 keywordChips.forEach((chip) => {
   chip.addEventListener("click", () => {
     insertSystemPromptToken(chip.dataset.token || "");
+    lastPromptSelection = getPromptSelection();
+    renderPromptSuggestions();
   });
 });
 
@@ -261,7 +547,9 @@ clearLogsButton.addEventListener("click", async () => {
   debugStatus.textContent = "正在清空日志...";
 
   try {
-    const response = await chrome.runtime.sendMessage({ type: "CLEAR_DEBUG_LOGS" });
+    const response = await chrome.runtime.sendMessage({
+      type: "CLEAR_DEBUG_LOGS",
+    });
 
     if (!response?.ok) {
       throw new Error(response?.error || "清空日志失败");
@@ -271,7 +559,8 @@ clearLogsButton.addEventListener("click", async () => {
     debugStatus.textContent = "调试日志已清空。";
   } catch (error) {
     console.error(error);
-    debugStatus.textContent = error instanceof Error ? error.message : "清空日志失败";
+    debugStatus.textContent =
+      error instanceof Error ? error.message : "清空日志失败";
   }
 });
 

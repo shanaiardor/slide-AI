@@ -7,11 +7,14 @@ function ensureUI() {
   host.id = HOST_ID;
   document.documentElement.append(host);
 
-  const shadow = host.attachShadow({ mode: "open" });
-  shadow.innerHTML = `
+  host.innerHTML = `
     <style>
-      :host {
+      #slide-ask-ai-root {
         all: initial;
+      }
+
+      #slide-ask-ai-root * {
+        box-sizing: border-box;
       }
 
       .slide-ask-ai-layer {
@@ -403,21 +406,23 @@ function ensureUI() {
 
   elements = {
     host,
-    trigger: shadow.querySelector(".slide-ask-ai-trigger"),
-    panel: shadow.querySelector(".slide-ask-ai-panel"),
-    handle: shadow.querySelector(".slide-ask-ai-drag-handle"),
-    status: shadow.querySelector(".slide-ask-ai-status"),
-    thread: shadow.querySelector(".slide-ask-ai-thread"),
-    composer: shadow.querySelector(".slide-ask-ai-composer"),
-    input: shadow.querySelector(".slide-ask-ai-input"),
-    send: shadow.querySelector(".slide-ask-ai-send"),
+    trigger: host.querySelector(".slide-ask-ai-trigger"),
+    panel: host.querySelector(".slide-ask-ai-panel"),
+    handle: host.querySelector(".slide-ask-ai-drag-handle"),
+    status: host.querySelector(".slide-ask-ai-status"),
+    thread: host.querySelector(".slide-ask-ai-thread"),
+    composer: host.querySelector(".slide-ask-ai-composer"),
+    input: host.querySelector(".slide-ask-ai-input"),
+    send: host.querySelector(".slide-ask-ai-send"),
   };
 
   elements.trigger.addEventListener("click", openPanelFromSelection);
   elements.handle.addEventListener("pointerdown", startPanelDrag);
   elements.send.addEventListener("click", submitFollowUp);
   elements.input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    const isComposing = event.isComposing || event.keyCode === 229;
+
+    if (!isComposing && event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void submitFollowUp();
     }

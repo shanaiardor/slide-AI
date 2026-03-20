@@ -13,11 +13,16 @@
 
         <label class="field">
           <span>系统提示词</span>
-          <textarea
-            id="system-prompt"
-            rows="5"
-            placeholder="告诉 AI 应该如何回答，例如：你正在阅读《{title}》，当前页面域名是 {domain}。"
-          ></textarea>
+          <div class="prompt-editor-shell">
+            <textarea
+              id="system-prompt"
+              class="prompt-editor-input"
+              rows="5"
+              data-placeholder="告诉 AI 应该如何回答，例如：你正在阅读《{title}》，当前页面域名是 {domain}。"
+              placeholder="告诉 AI 应该如何回答，例如：你正在阅读《{title}》，当前页面域名是 {domain}。"
+            ></textarea>
+            <div id="prompt-suggestions" class="prompt-suggestions" hidden></div>
+          </div>
           <div class="prompt-keywords">
             <div class="keyword-chips">
               <button class="keyword-chip" type="button" data-token="{title}"><code>{title}</code> 页面标题</button>
@@ -26,6 +31,7 @@
               <button class="keyword-chip" type="button" data-token="{domain}"><code>{domain}</code> 页面域名</button>
               <button class="keyword-chip" type="button" data-token="{pathname}"><code>{pathname}</code> 页面路径</button>
               <button class="keyword-chip" type="button" data-token="{language}"><code>{language}</code> 页面语言</button>
+              <button class="keyword-chip" type="button" data-token="{selected_text}"><code>{selected_text}</code> 当前选中文本</button>
             </div>
           </div>
         </label>
