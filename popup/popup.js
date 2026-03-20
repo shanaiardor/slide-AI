@@ -20,9 +20,6 @@ const SYSTEM_PROMPT_TOKENS = [
 
 const saveStatus = document.getElementById("save-status");
 const settingsForm = document.getElementById("settings-form");
-const keywordChips = Array.from(
-  document.querySelectorAll(".keyword-chip[data-token]"),
-);
 const promptSuggestions = document.getElementById("prompt-suggestions");
 const metricsPanel = document.getElementById("metrics-panel");
 const debugPanel = document.getElementById("debug-panel");
@@ -218,16 +215,6 @@ function renderApiConfigCard() {
 function setApiConfigCollapsed(nextValue) {
   apiConfigCollapsed = nextValue;
   renderApiConfigCard();
-}
-
-function insertSystemPromptToken(token) {
-  const start =
-    systemPromptInput.selectionStart ?? systemPromptInput.value.length;
-  const end = systemPromptInput.selectionEnd ?? systemPromptInput.value.length;
-
-  systemPromptInput.focus();
-  systemPromptInput.setRangeText(token, start, end, "end");
-  systemPromptInput.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function syncDebugPanelsVisibility() {
@@ -527,13 +514,6 @@ debugEnabledInput.addEventListener("change", () => {
 });
 apiConfigToggle.addEventListener("click", () => {
   setApiConfigCollapsed(!apiConfigCollapsed);
-});
-keywordChips.forEach((chip) => {
-  chip.addEventListener("click", () => {
-    insertSystemPromptToken(chip.dataset.token || "");
-    lastPromptSelection = getPromptSelection();
-    renderPromptSuggestions();
-  });
 });
 
 refreshLogsButton.addEventListener("click", () => {
