@@ -1,20 +1,25 @@
 async function askAI(message, sender) {
   const settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
+  const debugEnabled = Boolean(settings.debugEnabled);
   const apiKey = (settings.apiKey || "").trim();
   const selectedText = trimSelection(message.selectedText);
   const conversationHistory = getEffectiveConversationHistory(message);
 
   if (!selectedText) {
-    await appendDebugLog("warn", "validation_failed", {
-      reason: "missing_selected_text"
-    });
+    if (debugEnabled) {
+      await appendDebugLog("warn", "validation_failed", {
+        reason: "missing_selected_text"
+      });
+    }
     throw new Error("没有检测到选中文本。");
   }
 
   if (!apiKey) {
-    await appendDebugLog("warn", "validation_failed", {
-      reason: "missing_api_key"
-    });
+    if (debugEnabled) {
+      await appendDebugLog("warn", "validation_failed", {
+        reason: "missing_api_key"
+      });
+    }
     throw new Error("请先在插件弹窗中配置 API Key。");
   }
 
@@ -36,51 +41,59 @@ async function askAI(message, sender) {
   const errors = [];
   let result = null;
 
-  await appendDebugLog("info", "ask_ai_started", {
-    apiBaseUrl: normalizeBaseUrl(settings.apiBaseUrl),
-    apiKeyMasked: maskApiKey(apiKey),
-    model: (settings.model || DEFAULT_SETTINGS.model).trim(),
-    requestMode,
-    reasoningEffort: isDoubaoSeedModel(settings.model) ? settings.reasoningEffort : null,
-    selectedLength: selectedText.length,
-    selectedPreview: previewText(selectedText),
-    conversationLength: conversationHistory.length,
-    lastTurnPreview: previewText(conversationHistory[conversationHistory.length - 1]?.content || ""),
-    pageContext,
-    systemPromptPreview: previewText(systemPrompt, 200)
-  });
+  if (debugEnabled) {
+    await appendDebugLog("info", "ask_ai_started", {
+      apiBaseUrl: normalizeBaseUrl(settings.apiBaseUrl),
+      apiKeyMasked: maskApiKey(apiKey),
+      model: (settings.model || DEFAULT_SETTINGS.model).trim(),
+      requestMode,
+      reasoningEffort: isDoubaoSeedModel(settings.model) ? settings.reasoningEffort : null,
+      selectedLength: selectedText.length,
+      selectedPreview: previewText(selectedText),
+      conversationLength: conversationHistory.length,
+      lastTurnPreview: previewText(conversationHistory[conversationHistory.length - 1]?.content || ""),
+      pageContext,
+      systemPromptPreview: previewText(systemPrompt, 200)
+    });
+  }
 
   for (const mode of modes) {
     const endpoint = resolveEndpoint(settings.apiBaseUrl, mode);
 
     try {
-      await appendDebugLog("info", "request_attempt", {
-        endpoint,
-        mode
-      });
+      if (debugEnabled) {
+        await appendDebugLog("info", "request_attempt", {
+          endpoint,
+          mode
+        });
+      }
 
       result =
         mode === "responses"
           ? await requestResponses(endpoint, settings, apiKey, systemPrompt, promptText)
           : await requestChatCompletions(endpoint, settings, apiKey, chatMessages);
 
-      await appendDebugLog("info", "request_succeeded", {
-        endpoint,
-        mode,
-        resolvedMode: result.endpointMode,
-        answerLength: result.answer.length
-      });
+      if (debugEnabled) {
+        await appendDebugLog("info", "request_succeeded", {
+          endpoint,
+          mode,
+          resolvedMode: result.endpointMode,
+          answerLength: result.answer.length
+        });
+      }
 
       break;
     } catch (error) {
       errors.push(error);
 
-      await appendDebugLog("error", "request_failed", {
-        endpoint,
-        mode,
-        status: error?.status || null,
-        message: error instanceof Error ? error.message : "未知错误"
-      });
+      if (debugEnabled) {
+        await appendDebugLog("error", "request_failed", {
+          endpoint,
+          mode,
+          status: error?.status || null,
+          message: error instanceof Error ? error.message : "未知错误"
+        });
+      }
 
       if (requestMode !== "auto") {
         throw error;
@@ -90,10 +103,12 @@ async function askAI(message, sender) {
         throw error;
       }
 
-      await appendDebugLog("warn", "fallback_after_404", {
-        failedMode: mode,
-        nextMode: mode === "responses" ? "chat_completions" : null
-      });
+      if (debugEnabled) {
+        await appendDebugLog("warn", "fallback_after_404", {
+          failedMode: mode,
+          nextMode: mode === "responses" ? "chat_completions" : null
+        });
+      }
     }
   }
 

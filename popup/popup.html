@@ -8,68 +8,8 @@
   </head>
   <body>
     <main class="app">
-      <p class="eyebrow">Chrome Extension</p>
-      <h1>Slide Ask AI</h1>
-      <p class="desc">在网页上选中文字，点击浮出的“问 AI”按钮，就能直接得到解释、总结或翻译。</p>
-
-      <section class="panel">
-        <p class="label">当前页面</p>
-        <p id="tab-title" class="value">读取中...</p>
-        <p id="tab-url" class="muted">请稍候</p>
-      </section>
-
-      <section class="panel">
-        <p class="label">使用方式</p>
-        <p class="value compact">1. 保存下面的 AI 配置</p>
-        <p class="value compact">2. 刷新目标网页</p>
-        <p class="value compact">3. 选中文字后点击“问 AI”</p>
-        <p id="page-status" class="muted">正在检查当前页面是否支持注入...</p>
-      </section>
-
       <form id="settings-form" class="panel form-panel">
         <p class="label">AI 配置</p>
-
-        <label class="field">
-          <span>API Key</span>
-          <input id="api-key" type="password" placeholder="sk-..." autocomplete="off" />
-        </label>
-
-        <label class="field">
-          <span>Base URL</span>
-          <input id="api-base-url" type="url" placeholder="https://api.deepseek.com/v1" />
-        </label>
-
-        <label class="field">
-          <span>Model</span>
-          <input id="model" type="text" placeholder="deepseek-chat" />
-        </label>
-
-        <label class="field">
-          <span>Reasoning Effort</span>
-          <select id="reasoning-effort">
-            <option value="minimal">minimal</option>
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high">high</option>
-          </select>
-          <span id="reasoning-effort-hint" class="field-hint">
-            仅在 `doubao-seed` 模型下生效；`minimal` 表示不思考。
-          </span>
-        </label>
-
-        <label class="field">
-          <span>接口模式</span>
-          <select id="api-mode">
-            <option value="chat_completions">Chat Completions API（推荐）</option>
-            <option value="auto">自动兼容</option>
-            <option value="responses">Responses API</option>
-          </select>
-        </label>
-
-        <label class="checkbox-field">
-          <input id="debug-enabled" type="checkbox" />
-          <span>开启 Debug 模式，记录最近请求日志</span>
-        </label>
 
         <label class="field">
           <span>系统提示词</span>
@@ -79,26 +19,82 @@
             placeholder="告诉 AI 应该如何回答，例如：你正在阅读《{title}》，当前页面域名是 {domain}。"
           ></textarea>
           <div class="prompt-keywords">
-            <p class="field-hint">
-              仅支持系统内置关键字注入，只会在这里生效，不能自定义。未列出的 <code>{...}</code>
-              不会自动注入。
-            </p>
             <div class="keyword-chips">
-              <span class="keyword-chip"><code>{title}</code> 页面标题</span>
-              <span class="keyword-chip"><code>{url}</code> 页面完整地址</span>
-              <span class="keyword-chip"><code>{origin}</code> 页面来源</span>
-              <span class="keyword-chip"><code>{domain}</code> 页面域名</span>
-              <span class="keyword-chip"><code>{pathname}</code> 页面路径</span>
-              <span class="keyword-chip"><code>{language}</code> 页面语言</span>
+              <button class="keyword-chip" type="button" data-token="{title}"><code>{title}</code> 页面标题</button>
+              <button class="keyword-chip" type="button" data-token="{url}"><code>{url}</code> 页面完整地址</button>
+              <button class="keyword-chip" type="button" data-token="{origin}"><code>{origin}</code> 页面来源</button>
+              <button class="keyword-chip" type="button" data-token="{domain}"><code>{domain}</code> 页面域名</button>
+              <button class="keyword-chip" type="button" data-token="{pathname}"><code>{pathname}</code> 页面路径</button>
+              <button class="keyword-chip" type="button" data-token="{language}"><code>{language}</code> 页面语言</button>
             </div>
           </div>
+        </label>
+
+        <section class="api-config-card">
+          <button
+            id="api-config-toggle"
+            class="api-config-toggle"
+            type="button"
+            aria-expanded="true"
+            aria-controls="api-config-fields"
+          >
+            <span class="api-config-copy">
+              <span class="api-config-title">连接配置</span>
+              <span id="api-config-summary" class="api-config-summary">首次使用时需要填写 API Key。</span>
+            </span>
+            <span id="api-config-badge" class="api-config-badge">未配置</span>
+          </button>
+
+          <div id="api-config-fields" class="api-config-fields">
+            <label class="field">
+              <span>API Key</span>
+              <input id="api-key" type="password" placeholder="sk-..." autocomplete="off" />
+            </label>
+
+            <label class="field">
+              <span>Base URL</span>
+              <input id="api-base-url" type="url" placeholder="https://api.deepseek.com/v1" />
+            </label>
+
+            <label class="field">
+              <span>Model</span>
+              <input id="model" type="text" placeholder="deepseek-chat" />
+            </label>
+
+            <label class="field">
+              <span>Reasoning Effort</span>
+              <select id="reasoning-effort">
+                <option value="minimal">minimal</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+              <span id="reasoning-effort-hint" class="field-hint">
+                仅在 `doubao-seed` 模型下生效；`minimal` 表示不思考。
+              </span>
+            </label>
+
+            <label class="field">
+              <span>接口模式</span>
+              <select id="api-mode">
+                <option value="chat_completions">Chat Completions API（推荐）</option>
+                <option value="auto">自动兼容</option>
+                <option value="responses">Responses API</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <label class="checkbox-field">
+          <input id="debug-enabled" type="checkbox" />
+          <span>开启 Debug 模式，记录最近请求日志</span>
         </label>
 
         <button id="save-button" type="submit">保存配置</button>
         <p id="save-status" class="muted">配置会保存在浏览器本地存储中。</p>
       </form>
 
-      <section class="panel form-panel">
+      <section id="metrics-panel" class="panel form-panel">
         <p class="label">性能指标</p>
         <p id="metrics-status" class="muted">这里会显示最近一次 AI 请求的性能指标。</p>
         <div id="metrics-grid" class="metrics-grid">
@@ -122,7 +118,7 @@
         <p id="metrics-meta" class="muted">暂无请求记录</p>
       </section>
 
-      <section class="panel form-panel">
+      <section id="debug-panel" class="panel form-panel">
         <p class="label">调试日志</p>
         <p id="debug-status" class="muted">开启 Debug 模式后，这里会显示最近的请求过程。</p>
         <div class="debug-actions">

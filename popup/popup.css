@@ -20,27 +20,6 @@ body {
   padding: 18px;
 }
 
-.eyebrow {
-  margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #0369a1;
-}
-
-h1 {
-  margin: 0;
-  font-size: 24px;
-  line-height: 1.1;
-}
-
-.desc {
-  margin: 10px 0 16px;
-  color: #334155;
-  line-height: 1.5;
-}
-
 .panel {
   padding: 14px;
   margin-bottom: 12px;
@@ -50,21 +29,15 @@ h1 {
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
 }
 
+.panel[hidden] {
+  display: none !important;
+}
+
 .label {
   margin: 0 0 8px;
   font-size: 12px;
   font-weight: 700;
   color: #475569;
-}
-
-.value {
-  margin: 0 0 6px;
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.compact {
-  font-size: 14px;
 }
 
 .muted {
@@ -124,6 +97,23 @@ h1 {
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.keyword-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 118, 110, 0.26);
+  background: rgba(255, 255, 255, 1);
+}
+
+.keyword-chip:focus-visible {
+  outline: 0;
+  border-color: rgba(15, 118, 110, 0.36);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
 }
 
 .keyword-chip code,
@@ -133,6 +123,93 @@ h1 {
   background: rgba(15, 118, 110, 0.08);
   color: #0f766e;
   font-size: 11px;
+}
+
+.api-config-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.1), transparent 36%),
+    linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.98));
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.api-config-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  text-align: left;
+}
+
+.api-config-toggle::after {
+  content: "收起";
+  flex: none;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.api-config-toggle.api-config-toggle-collapsed::after {
+  content: "展开";
+}
+
+.api-config-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.api-config-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.api-config-summary {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.api-config-badge {
+  flex: none;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.14);
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.api-config-badge-ready {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
+.api-config-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.api-config-fields[hidden] {
+  display: none !important;
 }
 
 input,

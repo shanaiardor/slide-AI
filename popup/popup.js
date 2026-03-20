@@ -9,11 +9,15 @@ const DEFAULT_SETTINGS = {
     "你是一个网页阅读助手。请基于用户选中的内容回答，优先使用简洁清晰的中文。"
 };
 
-const tabTitle = document.getElementById("tab-title");
-const tabUrl = document.getElementById("tab-url");
-const pageStatus = document.getElementById("page-status");
 const saveStatus = document.getElementById("save-status");
 const settingsForm = document.getElementById("settings-form");
+const keywordChips = Array.from(document.querySelectorAll(".keyword-chip[data-token]"));
+const metricsPanel = document.getElementById("metrics-panel");
+const debugPanel = document.getElementById("debug-panel");
+const apiConfigToggle = document.getElementById("api-config-toggle");
+const apiConfigFields = document.getElementById("api-config-fields");
+const apiConfigSummary = document.getElementById("api-config-summary");
+const apiConfigBadge = document.getElementById("api-config-badge");
 const apiKeyInput = document.getElementById("api-key");
 const apiBaseUrlInput = document.getElementById("api-base-url");
 const modelInput = document.getElementById("model");
@@ -33,9 +37,47 @@ const metricFirstToken = document.getElementById("metric-first-token");
 const metricTokenSpeed = document.getElementById("metric-token-speed");
 const metricTotalLatency = document.getElementById("metric-total-latency");
 const metricCompletionTokens = document.getElementById("metric-completion-tokens");
+let apiConfigCollapsed = false;
 
 function isDoubaoSeedModel(model = "") {
   return /^doubao-seed/i.test(model.trim());
+}
+
+function hasSavedApiKey() {
+  return Boolean(apiKeyInput.value.trim());
+}
+
+function renderApiConfigCard() {
+  const configured = hasSavedApiKey();
+
+  apiConfigToggle.setAttribute("aria-expanded", String(!apiConfigCollapsed));
+  apiConfigFields.hidden = apiConfigCollapsed;
+  apiConfigToggle.classList.toggle("api-config-toggle-collapsed", apiConfigCollapsed);
+  apiConfigBadge.textContent = configured ? "已配置" : "未配置";
+  apiConfigBadge.classList.toggle("api-config-badge-ready", configured);
+  apiConfigSummary.textContent = configured
+    ? "API Key 已保存，通常不需要频繁改动。"
+    : "首次使用时需要填写 API Key。";
+}
+
+function setApiConfigCollapsed(nextValue) {
+  apiConfigCollapsed = nextValue;
+  renderApiConfigCard();
+}
+
+function insertSystemPromptToken(token) {
+  const start = systemPromptInput.selectionStart ?? systemPromptInput.value.length;
+  const end = systemPromptInput.selectionEnd ?? systemPromptInput.value.length;
+
+  systemPromptInput.focus();
+  systemPromptInput.setRangeText(token, start, end, "end");
+  systemPromptInput.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function syncDebugPanelsVisibility() {
+  const visible = debugEnabledInput.checked;
+  metricsPanel.hidden = !visible;
+  debugPanel.hidden = !visible;
 }
 
 function syncReasoningEffortAvailability() {
@@ -44,20 +86,6 @@ function syncReasoningEffortAvailability() {
   reasoningEffortHint.textContent = enabled
     ? "当前模型支持 reasoning_effort：minimal、low、medium、high。"
     : "仅在 doubao-seed 模型下生效；当前模型不会发送这个参数。";
-}
-
-function isRestrictedUrl(url = "") {
-  return (
-    !url ||
-    url.startsWith("chrome://") ||
-    url.startsWith("chrome-extension://") ||
-    url.startsWith("edge://")
-  );
-}
-
-async function getCurrentTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab;
 }
 
 async function loadSettings() {
@@ -69,6 +97,9 @@ async function loadSettings() {
   apiModeInput.value = settings.apiMode || DEFAULT_SETTINGS.apiMode;
   debugEnabledInput.checked = Boolean(settings.debugEnabled);
   systemPromptInput.value = settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt;
+  apiConfigCollapsed = Boolean(settings.apiKey);
+  renderApiConfigCard();
+  syncDebugPanelsVisibility();
   syncReasoningEffortAvailability();
 }
 
@@ -160,20 +191,11 @@ async function refreshDebugLogs() {
 
 async function init() {
   await loadSettings();
-  await refreshMetrics();
-  await refreshDebugLogs();
 
-  const tab = await getCurrentTab();
-
-  tabTitle.textContent = tab?.title || "未识别页面";
-  tabUrl.textContent = tab?.url || "无可用地址";
-
-  if (!tab?.id || isRestrictedUrl(tab.url)) {
-    pageStatus.textContent = "当前页面不支持注入，请切换到普通网页后再试。";
-    return;
+  if (debugEnabledInput.checked) {
+    await refreshMetrics();
+    await refreshDebugLogs();
   }
-
-  pageStatus.textContent = "当前页面支持滑词问 AI。如果这是刚加载的扩展，记得先刷新页面。";
 }
 
 settingsForm.addEventListener("submit", async (event) => {
@@ -193,6 +215,7 @@ settingsForm.addEventListener("submit", async (event) => {
       systemPrompt: systemPromptInput.value.trim() || DEFAULT_SETTINGS.systemPrompt
     });
 
+    setApiConfigCollapsed(hasSavedApiKey());
     saveStatus.textContent = "配置已保存。现在可以刷新网页并重新测试请求。";
     await refreshDebugLogs();
   } catch (error) {
@@ -204,6 +227,28 @@ settingsForm.addEventListener("submit", async (event) => {
 });
 
 modelInput.addEventListener("input", syncReasoningEffortAvailability);
+debugEnabledInput.addEventListener("change", () => {
+  syncDebugPanelsVisibility();
+
+  if (debugEnabledInput.checked) {
+    void refreshMetrics().catch((error) => {
+      console.error(error);
+      metricsStatus.textContent = "读取性能指标失败";
+    });
+    void refreshDebugLogs().catch((error) => {
+      console.error(error);
+      debugStatus.textContent = "刷新日志失败，请稍后重试。";
+    });
+  }
+});
+apiConfigToggle.addEventListener("click", () => {
+  setApiConfigCollapsed(!apiConfigCollapsed);
+});
+keywordChips.forEach((chip) => {
+  chip.addEventListener("click", () => {
+    insertSystemPromptToken(chip.dataset.token || "");
+  });
+});
 
 refreshLogsButton.addEventListener("click", () => {
   void refreshDebugLogs().catch((error) => {
@@ -232,5 +277,5 @@ clearLogsButton.addEventListener("click", async () => {
 
 init().catch((error) => {
   console.error(error);
-  pageStatus.textContent = "初始化失败，请刷新扩展后重试。";
+  saveStatus.textContent = "初始化失败，请刷新扩展后重试。";
 });

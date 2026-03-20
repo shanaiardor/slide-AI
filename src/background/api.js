@@ -4,6 +4,10 @@ async function saveLastRequestMetrics(metrics) {
   });
 }
 
+function shouldCollectDebugData(settings) {
+  return Boolean(settings?.debugEnabled);
+}
+
 function resolveEndpoint(baseUrl, mode) {
   const normalized = normalizeBaseUrl(baseUrl);
 
@@ -128,6 +132,11 @@ async function readJsonResponseWithTiming(response, startedAtPerf) {
   };
 }
 
+async function readJsonResponse(response) {
+  const responseText = await response.text();
+  return responseText ? JSON.parse(responseText) : {};
+}
+
 function buildPerformanceMetrics({
   startedAtIso,
   endpoint,
@@ -175,8 +184,9 @@ function safePortPostMessage(port, payload) {
 
 async function streamChatCompletions(endpoint, settings, apiKey, messages, port) {
   const model = (settings.model || DEFAULT_SETTINGS.model).trim();
-  const startedAtIso = new Date().toISOString();
-  const startedAtPerf = performance.now();
+  const collectDebugData = shouldCollectDebugData(settings);
+  const startedAtIso = collectDebugData ? new Date().toISOString() : "";
+  const startedAtPerf = collectDebugData ? performance.now() : 0;
   const payload = {
     model,
     stream: true,
@@ -200,24 +210,28 @@ async function streamChatCompletions(endpoint, settings, apiKey, messages, port)
   });
 
   if (!response.ok) {
-    const { data, totalLatencyMs, firstChunkLatencyMs } = await readJsonResponseWithTiming(
-      response,
-      startedAtPerf
-    );
+    let data;
 
-    await saveLastRequestMetrics(
-      buildPerformanceMetrics({
-        startedAtIso,
-        endpoint,
-        endpointMode: "chat/completions",
-        model,
-        totalLatencyMs,
-        firstChunkLatencyMs,
-        completionTokens: data?.usage?.completion_tokens ?? null,
-        status: "error",
-        firstTokenLatencyApproximate: true
-      })
-    );
+    if (collectDebugData) {
+      const timedResult = await readJsonResponseWithTiming(response, startedAtPerf);
+      data = timedResult.data;
+
+      await saveLastRequestMetrics(
+        buildPerformanceMetrics({
+          startedAtIso,
+          endpoint,
+          endpointMode: "chat/completions",
+          model,
+          totalLatencyMs: timedResult.totalLatencyMs,
+          firstChunkLatencyMs: timedResult.firstChunkLatencyMs,
+          completionTokens: data?.usage?.completion_tokens ?? null,
+          status: "error",
+          firstTokenLatencyApproximate: true
+        })
+      );
+    } else {
+      data = await readJsonResponse(response);
+    }
 
     throw createHttpError(response, data, endpoint);
   }
@@ -271,7 +285,7 @@ async function streamChatCompletions(endpoint, settings, apiKey, messages, port)
         continue;
       }
 
-      if (chunk?.usage) {
+      if (collectDebugData && chunk?.usage) {
         usage = chunk.usage;
       }
 
@@ -281,7 +295,7 @@ async function streamChatCompletions(endpoint, settings, apiKey, messages, port)
         continue;
       }
 
-      if (firstTokenLatencyMs === null) {
+      if (collectDebugData && firstTokenLatencyMs === null) {
         firstTokenLatencyMs = Math.round(performance.now() - startedAtPerf);
       }
 
@@ -307,21 +321,23 @@ async function streamChatCompletions(endpoint, settings, apiKey, messages, port)
     throw new Error(`AI 已返回结果，但没有解析出可展示的文本。(${endpoint})`);
   }
 
-  const totalLatencyMs = Math.round(performance.now() - startedAtPerf);
+  if (collectDebugData) {
+    const totalLatencyMs = Math.round(performance.now() - startedAtPerf);
 
-  await saveLastRequestMetrics(
-    buildPerformanceMetrics({
-      startedAtIso,
-      endpoint,
-      endpointMode: "chat/completions",
-      model,
-      totalLatencyMs,
-      firstChunkLatencyMs: firstTokenLatencyMs,
-      completionTokens: usage?.completion_tokens ?? null,
-      status: "success",
-      firstTokenLatencyApproximate: false
-    })
-  );
+    await saveLastRequestMetrics(
+      buildPerformanceMetrics({
+        startedAtIso,
+        endpoint,
+        endpointMode: "chat/completions",
+        model,
+        totalLatencyMs,
+        firstChunkLatencyMs: firstTokenLatencyMs,
+        completionTokens: usage?.completion_tokens ?? null,
+        status: "success",
+        firstTokenLatencyApproximate: false
+      })
+    );
+  }
 
   return {
     answer,
@@ -330,8 +346,9 @@ async function streamChatCompletions(endpoint, settings, apiKey, messages, port)
 }
 
 async function requestResponses(endpoint, settings, apiKey, systemPrompt, promptText) {
-  const startedAtIso = new Date().toISOString();
-  const startedAtPerf = performance.now();
+  const collectDebugData = shouldCollectDebugData(settings);
+  const startedAtIso = collectDebugData ? new Date().toISOString() : "";
+  const startedAtPerf = collectDebugData ? performance.now() : 0;
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -355,24 +372,26 @@ async function requestResponses(endpoint, settings, apiKey, systemPrompt, prompt
     })
   });
 
-  const { data, totalLatencyMs, firstChunkLatencyMs } = await readJsonResponseWithTiming(
-    response,
-    startedAtPerf
-  );
+  const timingResult = collectDebugData
+    ? await readJsonResponseWithTiming(response, startedAtPerf)
+    : null;
+  const data = timingResult ? timingResult.data : await readJsonResponse(response);
 
   if (!response.ok) {
-    await saveLastRequestMetrics(
-      buildPerformanceMetrics({
-        startedAtIso,
-        endpoint,
-        endpointMode: "responses",
-        model: (settings.model || DEFAULT_SETTINGS.model).trim(),
-        totalLatencyMs,
-        firstChunkLatencyMs,
-        completionTokens: data?.usage?.output_tokens ?? null,
-        status: "error"
-      })
-    );
+    if (collectDebugData) {
+      await saveLastRequestMetrics(
+        buildPerformanceMetrics({
+          startedAtIso,
+          endpoint,
+          endpointMode: "responses",
+          model: (settings.model || DEFAULT_SETTINGS.model).trim(),
+          totalLatencyMs: timingResult.totalLatencyMs,
+          firstChunkLatencyMs: timingResult.firstChunkLatencyMs,
+          completionTokens: data?.usage?.output_tokens ?? null,
+          status: "error"
+        })
+      );
+    }
     throw createHttpError(response, data, endpoint);
   }
 
@@ -382,18 +401,20 @@ async function requestResponses(endpoint, settings, apiKey, systemPrompt, prompt
     throw new Error(`AI 已返回结果，但没有解析出可展示的文本。(${endpoint})`);
   }
 
-  await saveLastRequestMetrics(
-    buildPerformanceMetrics({
-      startedAtIso,
-      endpoint,
-      endpointMode: "responses",
-      model: (settings.model || DEFAULT_SETTINGS.model).trim(),
-      totalLatencyMs,
-      firstChunkLatencyMs,
-      completionTokens: data?.usage?.output_tokens ?? null,
-      status: "success"
-    })
-  );
+  if (collectDebugData) {
+    await saveLastRequestMetrics(
+      buildPerformanceMetrics({
+        startedAtIso,
+        endpoint,
+        endpointMode: "responses",
+        model: (settings.model || DEFAULT_SETTINGS.model).trim(),
+        totalLatencyMs: timingResult.totalLatencyMs,
+        firstChunkLatencyMs: timingResult.firstChunkLatencyMs,
+        completionTokens: data?.usage?.output_tokens ?? null,
+        status: "success"
+      })
+    );
+  }
 
   return {
     answer,
@@ -403,8 +424,9 @@ async function requestResponses(endpoint, settings, apiKey, systemPrompt, prompt
 
 async function requestChatCompletions(endpoint, settings, apiKey, promptText) {
   const model = (settings.model || DEFAULT_SETTINGS.model).trim();
-  const startedAtIso = new Date().toISOString();
-  const startedAtPerf = performance.now();
+  const collectDebugData = shouldCollectDebugData(settings);
+  const startedAtIso = collectDebugData ? new Date().toISOString() : "";
+  const startedAtPerf = collectDebugData ? performance.now() : 0;
   const payload = {
     model,
     messages: promptText
@@ -426,24 +448,26 @@ async function requestChatCompletions(endpoint, settings, apiKey, promptText) {
     body: JSON.stringify(payload)
   });
 
-  const { data, totalLatencyMs, firstChunkLatencyMs } = await readJsonResponseWithTiming(
-    response,
-    startedAtPerf
-  );
+  const timingResult = collectDebugData
+    ? await readJsonResponseWithTiming(response, startedAtPerf)
+    : null;
+  const data = timingResult ? timingResult.data : await readJsonResponse(response);
 
   if (!response.ok) {
-    await saveLastRequestMetrics(
-      buildPerformanceMetrics({
-        startedAtIso,
-        endpoint,
-        endpointMode: "chat/completions",
-        model,
-        totalLatencyMs,
-        firstChunkLatencyMs,
-        completionTokens: data?.usage?.completion_tokens ?? null,
-        status: "error"
-      })
-    );
+    if (collectDebugData) {
+      await saveLastRequestMetrics(
+        buildPerformanceMetrics({
+          startedAtIso,
+          endpoint,
+          endpointMode: "chat/completions",
+          model,
+          totalLatencyMs: timingResult.totalLatencyMs,
+          firstChunkLatencyMs: timingResult.firstChunkLatencyMs,
+          completionTokens: data?.usage?.completion_tokens ?? null,
+          status: "error"
+        })
+      );
+    }
     throw createHttpError(response, data, endpoint);
   }
 
@@ -453,18 +477,20 @@ async function requestChatCompletions(endpoint, settings, apiKey, promptText) {
     throw new Error(`AI 已返回结果，但没有解析出可展示的文本。(${endpoint})`);
   }
 
-  await saveLastRequestMetrics(
-    buildPerformanceMetrics({
-      startedAtIso,
-      endpoint,
-      endpointMode: "chat/completions",
-      model,
-      totalLatencyMs,
-      firstChunkLatencyMs,
-      completionTokens: data?.usage?.completion_tokens ?? null,
-      status: "success"
-    })
-  );
+  if (collectDebugData) {
+    await saveLastRequestMetrics(
+      buildPerformanceMetrics({
+        startedAtIso,
+        endpoint,
+        endpointMode: "chat/completions",
+        model,
+        totalLatencyMs: timingResult.totalLatencyMs,
+        firstChunkLatencyMs: timingResult.firstChunkLatencyMs,
+        completionTokens: data?.usage?.completion_tokens ?? null,
+        status: "success"
+      })
+    );
+  }
 
   return {
     answer,
