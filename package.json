@@ -4,6 +4,6 @@
   "private": true,
   "description": "A Chrome extension that lets you select text on a page and ask AI.",
   "scripts": {
-    "check": "node --check src/background.js && node --check src/content.js && node --check popup/popup.js"
+    "check": "node --check src/background.js && node --check src/background/shared.js && node --check src/background/prompt.js && node --check src/background/debug.js && node --check src/background/api.js && node --check src/background/main.js && node --check src/content/shared.js && node --check src/content/markdown.js && node --check src/content/selection.js && node --check src/content/ui.js && node --check src/content/main.js && node --check popup/popup.js"
   }
 }

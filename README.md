@@ -13,6 +13,7 @@
 - 页面浮层支持继续追问，形成一个简洁的对话窗口
 - AI 回复支持流式逐字输出，不再等整段生成完成后一次性展示
 - 在插件弹窗中配置 API Key、Base URL、Model 和系统提示词
+- 系统提示词支持页面环境关键字注入，如 `{title}`、`{url}`、`{domain}`
 - 可配置 `reasoning_effort`
 - 插件弹窗显示最近一次请求的性能指标，如首 token 延迟和 token 速度
 
@@ -26,8 +27,19 @@
 │   ├── popup.html
 │   └── popup.js
 └── src
+    ├── background
+    │   ├── api.js
+    │   ├── debug.js
+    │   ├── main.js
+    │   ├── prompt.js
+    │   └── shared.js
     ├── background.js
-    └── content.js
+    └── content
+        ├── main.js
+        ├── markdown.js
+        ├── selection.js
+        ├── shared.js
+        └── ui.js
 ```
 
 ## 本地使用
@@ -43,8 +55,9 @@
 
 - `manifest.json` 是插件入口配置
 - `popup/` 放配置界面
-- `src/background.js` 负责请求 AI 接口
-- `src/content.js` 负责滑词按钮和页面内回答面板
+- `src/background.js` 是后台入口，负责加载 `src/background/` 下的模块
+- `src/background/` 负责请求 AI、提示词处理、调试日志和指标
+- `src/content/` 负责滑词按钮、选区检测、页面内回答面板和渲染
 
 ## AI 接口说明
 
@@ -54,6 +67,25 @@
 - 默认接口模式为 `Chat Completions API`
 - 额外发送可配置的 `reasoning_effort`
 - 如果你使用兼容该请求格式的服务，也可以改成自己的地址
+
+## 系统提示词关键字
+
+系统提示词支持内置页面环境关键字注入，这些关键字是插件内置的，只能在“系统提示词”配置中使用，不能自定义。
+
+- `{title}` 当前网页标题
+- `{url}` 当前网页完整地址
+- `{origin}` 当前网页来源，如 `https://example.com`
+- `{domain}` 当前网页域名
+- `{pathname}` 当前网页路径
+- `{language}` 页面语言，优先读取 `<html lang>`
+
+示例：
+
+```text
+你是一个网页阅读助手。当前页面标题：{title}
+当前页面地址：{url}
+当前站点：{domain}
+```
 
 ## 简单校验
 

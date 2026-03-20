@@ -73,7 +73,25 @@
 
         <label class="field">
           <span>系统提示词</span>
-          <textarea id="system-prompt" rows="4" placeholder="告诉 AI 应该如何回答"></textarea>
+          <textarea
+            id="system-prompt"
+            rows="5"
+            placeholder="告诉 AI 应该如何回答，例如：你正在阅读《{title}》，当前页面域名是 {domain}。"
+          ></textarea>
+          <div class="prompt-keywords">
+            <p class="field-hint">
+              仅支持系统内置关键字注入，只会在这里生效，不能自定义。未列出的 <code>{...}</code>
+              不会自动注入。
+            </p>
+            <div class="keyword-chips">
+              <span class="keyword-chip"><code>{title}</code> 页面标题</span>
+              <span class="keyword-chip"><code>{url}</code> 页面完整地址</span>
+              <span class="keyword-chip"><code>{origin}</code> 页面来源</span>
+              <span class="keyword-chip"><code>{domain}</code> 页面域名</span>
+              <span class="keyword-chip"><code>{pathname}</code> 页面路径</span>
+              <span class="keyword-chip"><code>{language}</code> 页面语言</span>
+            </div>
+          </div>
         </label>
 
         <button id="save-button" type="submit">保存配置</button>
