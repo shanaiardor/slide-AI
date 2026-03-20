@@ -4,6 +4,13 @@
   "private": true,
   "description": "A Chrome extension that lets you select text on a page and ask AI.",
   "scripts": {
-    "check": "node --check src/background.js && node --check src/background/shared.js && node --check src/background/prompt.js && node --check src/background/debug.js && node --check src/background/api.js && node --check src/background/main.js && node --check src/content/shared.js && node --check src/content/markdown.js && node --check src/content/selection.js && node --check src/content/ui.js && node --check src/content/main.js && node --check popup/popup.js"
+    "build:markdown-runtime": "node scripts/build-markdown-runtime.mjs",
+    "check": "node --check scripts/build-markdown-runtime.mjs && node --check src/content/markdown-runtime-entry.mjs && node --check src/background.js && node --check src/background/shared.js && node --check src/background/prompt.js && node --check src/background/debug.js && node --check src/background/api.js && node --check src/background/main.js && node --check src/content/shared.js && node --check src/content/markdown.js && node --check src/content/selection.js && node --check src/content/ui.js && node --check src/content/main.js && node --check popup/popup.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.4",
+    "marked": "^17.0.4",
+    "shiki": "^4.0.2",
+    "stream-markdown": "^0.0.14"
   }
 }

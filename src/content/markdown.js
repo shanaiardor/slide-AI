@@ -44,7 +44,7 @@ function renderReasoningRail(text, streaming = false) {
   `;
 }
 
-function renderStreamingAssistantBody(text, hasReasoning = false) {
+function renderStreamingPlaceholder(text, hasReasoning = false) {
   const content = String(text || "");
 
   if (!content && !hasReasoning) {
@@ -62,113 +62,16 @@ function renderStreamingAssistantBody(text, hasReasoning = false) {
   return `<p>${escapeHtml(content).replace(/\n/g, "<br>")}</p>`;
 }
 
-function renderMarkdown(markdown) {
-  const lines = String(markdown || "")
-    .replace(/\r\n/g, "\n")
-    .split("\n");
-  const blocks = [];
-  let index = 0;
+function renderMarkdownTarget(message) {
+  const fallback = message.streaming
+    ? renderStreamingPlaceholder(message.content, Boolean(message.reasoning))
+    : `<p>${escapeHtml(message.content).replace(/\n/g, "<br>")}</p>`;
 
-  while (index < lines.length) {
-    const line = lines[index];
-
-    if (!line.trim()) {
-      index += 1;
-      continue;
-    }
-
-    const codeFence = line.match(/^```([\w-]+)?\s*$/);
-
-    if (codeFence) {
-      const language = codeFence[1] || "";
-      const codeLines = [];
-      index += 1;
-
-      while (index < lines.length && !/^```/.test(lines[index])) {
-        codeLines.push(lines[index]);
-        index += 1;
-      }
-
-      if (index < lines.length) {
-        index += 1;
-      }
-
-      blocks.push(
-        `<pre><code class="language-${escapeAttribute(language)}">${escapeHtml(codeLines.join("\n"))}</code></pre>`,
-      );
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,6})\s+(.*)$/);
-
-    if (heading) {
-      const level = heading[1].length;
-      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
-      index += 1;
-      continue;
-    }
-
-    if (/^\s*>\s?/.test(line)) {
-      const quoteLines = [];
-
-      while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
-        quoteLines.push(lines[index].replace(/^\s*>\s?/, ""));
-        index += 1;
-      }
-
-      blocks.push(
-        `<blockquote>${renderInlineMarkdown(quoteLines.join("\n"))}</blockquote>`,
-      );
-      continue;
-    }
-
-    if (/^\s*[-*+]\s+/.test(line)) {
-      const items = [];
-
-      while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\s*[-*+]\s+/, ""));
-        index += 1;
-      }
-
-      blocks.push(
-        `<ul>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`,
-      );
-      continue;
-    }
-
-    if (/^\s*\d+\.\s+/.test(line)) {
-      const items = [];
-
-      while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\s*\d+\.\s+/, ""));
-        index += 1;
-      }
-
-      blocks.push(
-        `<ol>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ol>`,
-      );
-      continue;
-    }
-
-    const paragraphLines = [];
-
-    while (
-      index < lines.length &&
-      lines[index].trim() &&
-      !/^(#{1,6})\s+/.test(lines[index]) &&
-      !/^```/.test(lines[index]) &&
-      !/^\s*>\s?/.test(lines[index]) &&
-      !/^\s*[-*+]\s+/.test(lines[index]) &&
-      !/^\s*\d+\.\s+/.test(lines[index])
-    ) {
-      paragraphLines.push(lines[index]);
-      index += 1;
-    }
-
-    blocks.push(`<p>${renderInlineMarkdown(paragraphLines.join("\n"))}</p>`);
-  }
-
-  return blocks.join("");
+  return `
+    <div class="slide-ask-ai-markdown-target" data-markdown-target="assistant">
+      ${fallback}
+    </div>
+  `;
 }
 
 function renderAssistantMessageBody(message) {
@@ -177,11 +80,7 @@ function renderAssistantMessageBody(message) {
     Boolean(message.reasoningStreaming),
   );
 
-  if (message.streaming) {
-    return `${reasoningRail}${renderStreamingAssistantBody(message.content, Boolean(message.reasoning))}`;
-  }
-
-  return `${reasoningRail}${renderMarkdown(message.content)}`;
+  return `${reasoningRail}${renderMarkdownTarget(message)}`;
 }
 
 function renderChatMessage(message, messageIndex = null) {
@@ -200,4 +99,75 @@ function renderChatMessage(message, messageIndex = null) {
       <div class="slide-ask-ai-message-body">${body}</div>
     </article>
   `;
+}
+
+function getMarkdownRuntime() {
+  if (globalThis.__slideAskAiMarkdownRuntimePromise) {
+    return globalThis.__slideAskAiMarkdownRuntimePromise;
+  }
+
+  globalThis.__slideAskAiMarkdownRuntimePromise = import(
+    chrome.runtime.getURL("src/content/markdown-runtime.bundle.js")
+  ).then((module) => {
+    const runtime = module.default || module;
+    if (typeof runtime?.warmup === "function") {
+      void runtime.warmup().catch(() => {});
+    }
+    return runtime;
+  }).catch((error) => {
+    console.error("Slide Ask AI markdown runtime load failed", error);
+    throw error;
+  });
+
+  return globalThis.__slideAskAiMarkdownRuntimePromise;
+}
+
+function enhanceAssistantMarkdownTarget(container, message) {
+  const target = container?.querySelector?.(".slide-ask-ai-markdown-target");
+
+  if (!target) {
+    return;
+  }
+
+  if (!String(message?.content || "").trim()) {
+    return;
+  }
+
+  target.dataset.markdownRuntime = "loading";
+
+  void getMarkdownRuntime()
+    .then((runtime) => {
+      target.dataset.markdownRuntime = "ready";
+      return runtime.renderInto(target, message.content);
+    })
+    .catch((error) => {
+      target.dataset.markdownRuntime = "error";
+      console.error("Slide Ask AI markdown render failed", error);
+    });
+}
+
+function enhanceAssistantMarkdownThread(threadElement, messages) {
+  if (!threadElement || !Array.isArray(messages)) {
+    return;
+  }
+
+  const articles = Array.from(
+    threadElement.querySelectorAll(".slide-ask-ai-message[data-message-index]"),
+  );
+
+  articles.forEach((article) => {
+    const index = Number(article.getAttribute("data-message-index"));
+
+    if (!Number.isFinite(index)) {
+      return;
+    }
+
+    const message = messages[index];
+
+    if (!message || message.hidden || message.role !== "assistant") {
+      return;
+    }
+
+    enhanceAssistantMarkdownTarget(article, message);
+  });
 }

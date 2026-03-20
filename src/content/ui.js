@@ -199,6 +199,61 @@ function ensureUI() {
         margin-bottom: 0;
       }
 
+      .slide-ask-ai-markdown-target {
+        min-height: 0;
+      }
+
+      .slide-ask-ai-markdown-target .shiki,
+      .slide-ask-ai-markdown-target .slide-ask-ai-code-fallback {
+        overflow: auto;
+        margin: 0 0 12px;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(248, 250, 252, 0.96) !important;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .slide-ask-ai-markdown-target .shiki code,
+      .slide-ask-ai-markdown-target .slide-ask-ai-code-fallback code {
+        display: block;
+        min-width: fit-content;
+        background: transparent;
+        padding: 0;
+        color: inherit;
+      }
+
+      .slide-ask-ai-markdown-target .shiki .line {
+        display: block;
+      }
+
+      .slide-ask-ai-markdown-target table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0 0 12px;
+        font-size: 12px;
+      }
+
+      .slide-ask-ai-markdown-target th,
+      .slide-ask-ai-markdown-target td {
+        padding: 8px 10px;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .slide-ask-ai-markdown-target th {
+        background: rgba(241, 245, 249, 0.92);
+      }
+
+      .slide-ask-ai-markdown-target hr {
+        height: 1px;
+        margin: 14px 0;
+        border: 0;
+        background: rgba(148, 163, 184, 0.24);
+      }
+
       .slide-ask-ai-reasoning-shell {
         position: relative;
         margin: -2px 0 12px;
@@ -574,6 +629,7 @@ function syncStreamingMessageView() {
   }
 
   body.innerHTML = renderAssistantMessageBody(message);
+  enhanceAssistantMarkdownTarget(body, message);
   const reasoningWindow = body.querySelector(".slide-ask-ai-reasoning-window");
 
   if (reasoningWindow) {
@@ -835,6 +891,7 @@ function renderPanel() {
         message.hidden ? "" : renderChatMessage(message, index),
       )
       .join("");
+    enhanceAssistantMarkdownThread(ui.thread, state.messages);
     ui.thread.classList.remove("slide-ask-ai-hidden");
   } else {
     ui.thread.innerHTML = "";
